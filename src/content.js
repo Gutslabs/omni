@@ -96,10 +96,9 @@ function init() {
 		}
 
 	function buildActionMarkup(action, index, description) {
-		const hiddenClass = (action.action == "search" || action.action == "goto") ? " omni-hidden" : "";
 		const urlAttr = action.url ? " data-url='" + escapeHtml(action.url) + "'" : "";
 		return (
-			"<div class='omni-item" + hiddenClass + "' data-index='" + index + "' data-type='" + escapeHtml(action.type) + "'" + urlAttr + ">" +
+			"<div class='omni-item' data-index='" + index + "' data-type='" + escapeHtml(action.type) + "'" + urlAttr + ">" +
 				getIconMarkup(action) +
 				"<div class='omni-item-details'>" +
 					"<div class='omni-item-name'>" + escapeHtml(action.title) + "</div>" +
@@ -181,15 +180,6 @@ function init() {
 		}
 
 			updateResultsLabel(visibleCount);
-		}
-
-		function setPreferredSearchSelection(value) {
-			if (!value) return;
-
-			const targetAction = validURL(value) ? "goto" : "search";
-			const preferredEl = getItemByAction(targetAction);
-			if (!preferredEl || preferredEl.classList.contains("omni-hidden")) return;
-			setActiveItemByIndex(parseInt(preferredEl.getAttribute("data-index"), 10) || 0, false);
 		}
 
 	function keepItemInView(target) {
@@ -292,7 +282,6 @@ function init() {
 
 						// Strict overlay match — close only when clicking the overlay itself
 						if (e.target.id === "omni-overlay") closeOmni();
-						if (e.target.closest("#open-page-omni-extension-thing")) openShortcuts();
 					}, true);
 
 					document.addEventListener("mouseover", (e) => {
@@ -553,185 +542,40 @@ function init() {
 		}, 3000);
 	}
 
-	// Autocomplete commands
-	function checkShortHand(e, value) {
-		var el = $(".omni-extension input");
-		if (!el) return;
-		if (e.keyCode != 8) {
-			if (value == "/t") {
-				el.value = "/tabs ";
-			} else if (value == "/b") {
-				el.value = "/bookmarks ";
-			} else if (value == "/h") {
-				el.value = "/history ";
-			} else if (value == "/r") {
-				el.value = "/remove ";
-			} else if (value == "/a") {
-				el.value = "/actions ";
-			}
-			} else {
-				if (value == "/tabs" || value == "/bookmarks" || value == "/actions" || value == "/remove" || value == "/history") {
-					el.value = "";
-				}
-			}
-		}
-
-	function addhttp(url) {
-		if (!/^(?:f|ht)tps?\:\/\//.test(url)) {
-			url = "http://" + url;
-		}
-		return url;
+	function matchesAction(action, query) {
+		return [
+			action && action.title,
+			action && action.desc,
+			action && action.url,
+			action && action.pendingUrl
+		].some((field) => String(field || "").toLowerCase().includes(query));
 	}
 
-	function validURL(str) {
-		var pattern = new RegExp('^(https?:\\/\\/)?'+
-			'((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|'+
-			'((\\d{1,3}\\.){3}\\d{1,3}))'+
-			'(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*'+
-			'(\\?[;&a-z\\d%_.~+=-]*)?'+
-			'(\\#[-a-z\\d_]*)?$','i');
-		return !!pattern.test(str);
-	}
-
-	// Helper to show/hide elements using class (resilient to `all: unset` reset)
-	function toggleItem(el, show) {
-		const hidden = el.classList.contains('omni-hidden');
-		if (show && hidden) el.classList.remove('omni-hidden');
-		else if (!show && !hidden) el.classList.add('omni-hidden');
-	}
-
-	function getItemByAction(actionName) {
-		const idx = actions.findIndex(x => x.action == actionName);
-		return $(`.omni-item[data-index='${idx}']`);
-	}
-
-	function hideSearchAndGoto() {
-		const searchEl = getItemByAction("search");
-		const gotoEl = getItemByAction("goto");
-		if (searchEl) searchEl.classList.add('omni-hidden');
-		if (gotoEl) gotoEl.classList.add('omni-hidden');
-	}
-
-	// Search for an action in the omni
+	// Search through open tabs only
 	function search(e) {
 		if (!isOpen) return;
 		if (e.keyCode == 37 || e.keyCode == 38 || e.keyCode == 39 || e.keyCode == 40 || e.keyCode == 13) {
 			return;
 		}
-		var value = this.value.toLowerCase();
-		checkShortHand(e, value);
-		value = this.value.toLowerCase();
+		const value = this.value.trim().toLowerCase();
 
-		if (value.startsWith("/history")) {
-			hideSearchAndGoto();
-			var tempvalue = value.replace("/history ", "");
-			var query = "";
-			if (tempvalue != "/history") {
-				query = value.replace("/history ", "");
-			}
-			const requestId = ++activeFilterRequest;
-			searchTimer = clearTimer(searchTimer);
-			searchTimer = window.setTimeout(() => {
-					safeSend({request:"search-history", query:query}, (response) => {
-						if (!response || requestId !== activeFilterRequest || !isOpen) return;
-						populateOmniFilter(Array.isArray(response.history) ? response.history : []);
-					});
-				}, FILTER_DEBOUNCE_MS);
-			return;
-		} else if (value.startsWith("/bookmarks")) {
-			hideSearchAndGoto();
-			var tempvalue = value.replace("/bookmarks ", "");
-			if (tempvalue != "/bookmarks" && tempvalue != "") {
-				var query = value.replace("/bookmarks ", "");
-				const requestId = ++activeFilterRequest;
-				searchTimer = clearTimer(searchTimer);
-				searchTimer = window.setTimeout(() => {
-						safeSend({request:"search-bookmarks", query:query}, (response) => {
-							if (!response || requestId !== activeFilterRequest || !isOpen) return;
-							populateOmniFilter(Array.isArray(response.bookmarks) ? response.bookmarks : []);
-						});
-					}, FILTER_DEBOUNCE_MS);
-			} else {
-				searchTimer = clearTimer(searchTimer);
-				activeFilterRequest += 1;
-				populateOmniFilter(actions.filter(x => x.type == "bookmark"));
-			}
-			return;
-		} else {
-			searchTimer = clearTimer(searchTimer);
+		searchTimer = clearTimer(searchTimer);
+		if (!value) {
 			activeFilterRequest += 1;
-			if (isFiltered) {
-				populateOmni();
-			}
-			const items = $$("#omni-extension #omni-list .omni-item");
-			const searchEl = getItemByAction("search");
-			const gotoEl = getItemByAction("goto");
-			const isTabsCommand = value.startsWith("/tabs");
-			const isRemoveCommand = value.startsWith("/remove");
-			const isActionsCommand = value.startsWith("/actions");
-			const tabsValue = value.replace("/tabs ", "");
-			const removeValue = value.replace("/remove ", "");
-			const actionsValue = value.replace("/actions ", "");
-
-			if (isTabsCommand || isRemoveCommand || isActionsCommand) {
-				hideSearchAndGoto();
-			}
-
-			items.forEach((el) => {
-				const name = $(".omni-item-name", el);
-				const desc = $(".omni-item-desc", el);
-				const nameText = name ? name.textContent.toLowerCase() : "";
-				const descText = desc ? desc.textContent.toLowerCase() : "";
-				const type = el.getAttribute("data-type");
-
-				if (isTabsCommand) {
-					if (tabsValue == "/tabs") {
-						toggleItem(el, type == "tab");
-					} else {
-						toggleItem(el, (nameText.indexOf(tabsValue) > -1 || descText.indexOf(tabsValue) > -1) && type == "tab");
-					}
-				} else if (isRemoveCommand) {
-					if (removeValue == "/remove") {
-						toggleItem(el, type == "bookmark" || type == "tab");
-					} else {
-						toggleItem(el, (nameText.indexOf(removeValue) > -1 || descText.indexOf(removeValue) > -1) && (type == "bookmark" || type == "tab"));
-					}
-				} else if (isActionsCommand) {
-					if (actionsValue == "/actions") {
-						toggleItem(el, type == "action");
-					} else {
-						toggleItem(el, (nameText.indexOf(actionsValue) > -1 || descText.indexOf(actionsValue) > -1) && type == "action");
-					}
-					} else {
-						toggleItem(el, nameText.indexOf(value) > -1 || descText.indexOf(value) > -1);
-						if (value == "") {
-							if (searchEl) searchEl.classList.add('omni-hidden');
-							if (gotoEl) gotoEl.classList.add('omni-hidden');
-						} else if (!validURL(value)) {
-							if (searchEl) searchEl.classList.remove('omni-hidden');
-							if (gotoEl) gotoEl.classList.add('omni-hidden');
-							const searchName = $(".omni-item-name", searchEl);
-							if (searchName) searchName.textContent = '"' + value + '"';
-							const searchDesc = $(".omni-item-desc", searchEl);
-							if (searchDesc) searchDesc.textContent = "Search Google";
-						} else {
-							if (searchEl) searchEl.classList.add('omni-hidden');
-							if (gotoEl) gotoEl.classList.remove('omni-hidden');
-							const gotoName = $(".omni-item-name", gotoEl);
-							if (gotoName) gotoName.textContent = value;
-							const gotoDesc = $(".omni-item-desc", gotoEl);
-							if (gotoDesc) gotoDesc.textContent = "Open website";
-						}
-					}
-				});
-			}
-
-			syncActiveItem();
-			setPreferredSearchSelection(value);
+			if (isFiltered) populateOmni();
+			else syncActiveItem();
+			return;
 		}
 
-		// Handle actions from the omni
-		function handleAction(e) {
+		const requestId = ++activeFilterRequest;
+		searchTimer = window.setTimeout(() => {
+			if (requestId !== activeFilterRequest || !isOpen) return;
+			populateOmniFilter(actions.filter((action) => matchesAction(action, value)));
+		}, FILTER_DEBOUNCE_MS);
+	}
+
+	// Handle actions from the omni
+	function handleAction() {
 			const activeEl = $(".omni-item-active");
 			if (!activeEl) return;
 
@@ -741,116 +585,10 @@ function init() {
 			if (!action) return;
 
 			closeOmniForAction();
-			const inputVal = ($(".omni-extension input") || {}).value || "";
-			const lowerInput = inputVal.toLowerCase();
-
-			if (lowerInput.startsWith("/remove")) {
-				safeSend({request:"remove", type:action.type, action:action});
-			} else if (lowerInput.startsWith("/history")) {
-				if (e.ctrlKey || e.metaKey) {
-					window.open(activeEl.getAttribute("data-url"));
-				} else {
-					window.open(activeEl.getAttribute("data-url"), "_self");
-				}
-			} else if (lowerInput.startsWith("/bookmarks")) {
-				if (e.ctrlKey || e.metaKey) {
-					window.open(activeEl.getAttribute("data-url"));
-				} else {
-					window.open(activeEl.getAttribute("data-url"), "_self");
-				}
-			} else {
-				switch (action.action) {
-					case "bookmark":
-						if (e.ctrlKey || e.metaKey) {
-							window.open(action.url);
-						} else {
-							window.open(action.url, "_self");
-						}
-						break;
-				case "scroll-bottom":
-					window.scrollTo(0,document.body.scrollHeight);
-					showToast(action);
-					break;
-				case "scroll-top":
-					window.scrollTo(0,0);
-					break;
-				case "navigation":
-					if (e.ctrlKey || e.metaKey) {
-						window.open(action.url);
-					} else {
-						window.open(action.url, "_self");
-						}
-						break;
-					case "fullscreen":
-						document.documentElement.requestFullscreen().catch(() => {});
-						break;
-					case "new-tab":
-						safeSend({request:"new-tab"});
-						break;
-					case "email":
-						window.open("mailto:");
-						break;
-					case "url":
-					if (e.ctrlKey || e.metaKey) {
-						window.open(action.url);
-					} else {
-						window.open(action.url, "_self");
-					}
-					break;
-					case "goto":
-						if (e.ctrlKey || e.metaKey) {
-							window.open(addhttp(inputVal));
-						} else {
-							window.open(addhttp(inputVal), "_self");
-						}
-						break;
-					case "search":
-						safeSend({request:"search", query:inputVal, newTab: !!(e.ctrlKey || e.metaKey)});
-						break;
-						case "print":
-							window.print();
-							break;
-					case "switch-tab":
-					case "go-back":
-					case "go-forward":
-					case "duplicate-tab":
-					case "create-bookmark":
-					case "mute":
-					case "unmute":
-					case "reload":
-					case "pin":
-					case "unpin":
-					case "history":
-					case "downloads":
-					case "extensions":
-					case "settings":
-					case "extensions/shortcuts":
-					case "manage-data":
-					case "incognito":
-					case "close-window":
-					case "close-tab":
-						safeSend({request:action.action, tab:action, query:inputVal});
-						break;
-					case "remove-all":
-					case "remove-history":
-					case "remove-cookies":
-					case "remove-cache":
-					case "remove-local-storage":
-					case "remove-passwords":
-						safeSend({request:action.action, tab:action, query:inputVal});
-						showToast(action);
-						break;
-				}
+			if (action.action === "switch-tab") {
+				safeSend({request:"switch-tab", tab:action});
 			}
-
 	}
-
-	function openShortcuts() {
-		safeSend({request:"extensions/shortcuts"});
-	}
-
-	// Track modifier keys for Alt+Shift combos
-	var down = [];
 
 	function moveActive(direction) {
 		const active = $(".omni-item-active");
@@ -877,7 +615,6 @@ function init() {
 	document.addEventListener("keydown", (e) => {
 		if (!e.isTrusted) return;
 		if (!extAlive()) return;
-		down[e.keyCode] = true;
 		if (!isOpen) return;
 
 		// Ignore OS key-repeat events to prevent multi-step jumps
@@ -911,20 +648,6 @@ function init() {
 				break;
 		}
 	}, true);
-
-	document.addEventListener("keyup", (e) => {
-		if (!e.isTrusted) return;
-		if (!extAlive()) { down = []; return; }
-		if (down[18] && down[16] && down[80]) {
-			safeSend({request:"toggle-pin"});
-		} else if (down[18] && down[16] && down[77]) {
-			safeSend({request:"toggle-mute"});
-		} else if (down[18] && down[16] && down[67]) {
-			window.open("mailto:");
-		}
-
-		down = [];
-	});
 
 	// Receive messages from background
 	try {

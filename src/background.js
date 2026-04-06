@@ -406,16 +406,7 @@ function restoreNewTab(tab) {
 // (from "get-actions") rather than on every tab event, so the array is never
 // seen in a half-rebuilt state by the content script.
 const buildActions = async () => {
-	const [defaults, tabs, bookmarks] = await Promise.all([
-		buildDefaultActions(),
-		getTabsAsActions(),
-		getBookmarksAsActions()
-	]);
-	const search = [
-		{title:"Search Google", desc:"Search Google", type:"action", action:"search", emoji:true, emojiChar:"\uD83D\uDD0D", keycheck:false},
-		{title:"Go to website", desc:"Open website", type:"action", action:"goto", emoji:true, emojiChar:"\uD83D\uDD0D", keycheck:false}
-	];
-	return search.concat(tabs, defaults, bookmarks);
+	return getTabsAsActions();
 };
 
 // Action handlers
