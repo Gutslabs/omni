@@ -406,7 +406,21 @@ function restoreNewTab(tab) {
 // (from "get-actions") rather than on every tab event, so the array is never
 // seen in a half-rebuilt state by the content script.
 const buildActions = async () => {
-	return getTabsAsActions();
+	const [currentTab, tabs] = await Promise.all([
+		getCurrentTab(),
+		getTabsAsActions()
+	]);
+	const muteAction = currentTab && currentTab.id != null ? {
+		title: currentTab.mutedInfo && currentTab.mutedInfo.muted ? "Unmute page" : "Mute page",
+		desc: currentTab.mutedInfo && currentTab.mutedInfo.muted ? "Unmute the current page" : "Mute the current page",
+		type: "action",
+		action: "toggle-mute",
+		emoji: true,
+		emojiChar: currentTab.mutedInfo && currentTab.mutedInfo.muted ? "\uD83D\uDD08" : "\uD83D\uDD07",
+		keycheck: false
+	} : null;
+
+	return muteAction ? [muteAction].concat(tabs) : tabs;
 };
 
 // Action handlers

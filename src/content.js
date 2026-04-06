@@ -585,7 +585,9 @@ function init() {
 			if (!action) return;
 
 			closeOmniForAction();
-			if (action.action === "switch-tab") {
+			if (action.action === "toggle-mute") {
+				safeSend({request:"toggle-mute"});
+			} else if (action.action === "switch-tab") {
 				safeSend({request:"switch-tab", tab:action});
 			}
 	}
