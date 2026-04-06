@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Omni Settings</title>
+	<link rel="stylesheet" href="options.css">
+</head>
+<body>
+	<div class="settings-container">
+		<header class="settings-header">
+			<div class="settings-logo">
+				<img src="assets/logo-128.png" alt="Omni" width="48" height="48">
+				<div>
+					<h1>Omni</h1>
+					<span class="version">v2.0.0</span>
+				</div>
+			</div>
+			<p class="settings-subtitle">Bookmark, History, & Tab Manager</p>
+		</header>
+
+		<section class="settings-section">
+			<h2>Appearance</h2>
+
+			<div class="setting-row">
+				<div class="setting-info">
+					<label>Theme</label>
+					<span class="setting-desc">Choose the color scheme for Omni</span>
+				</div>
+				<div class="theme-selector">
+					<button class="theme-option" data-theme="system">
+						<span class="theme-icon">💻</span>
+						<span>System</span>
+					</button>
+					<button class="theme-option" data-theme="light">
+						<span class="theme-icon">☀️</span>
+						<span>Light</span>
+					</button>
+					<button class="theme-option" data-theme="dark">
+						<span class="theme-icon">🌙</span>
+						<span>Dark</span>
+					</button>
+				</div>
+			</div>
+
+			<div class="setting-row">
+				<div class="setting-info">
+					<label>Accent Color</label>
+					<span class="setting-desc">Customize the highlight color</span>
+				</div>
+				<div class="color-selector">
+					<button class="color-option" data-color="#6068d2" style="--swatch: #6068d2" title="Purple"></button>
+					<button class="color-option" data-color="#3b82f6" style="--swatch: #3b82f6" title="Blue"></button>
+					<button class="color-option" data-color="#10b981" style="--swatch: #10b981" title="Green"></button>
+					<button class="color-option" data-color="#ef4444" style="--swatch: #ef4444" title="Red"></button>
+					<button class="color-option" data-color="#f59e0b" style="--swatch: #f59e0b" title="Orange"></button>
+					<button class="color-option" data-color="#ec4899" style="--swatch: #ec4899" title="Pink"></button>
+					<div class="color-custom">
+						<input type="color" id="custom-color" value="#6068d2" title="Custom color">
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="settings-section">
+			<h2>Actions</h2>
+			<p class="section-desc">Toggle which action categories appear in Omni</p>
+
+			<div class="toggle-row">
+				<div class="toggle-info">
+					<span class="toggle-emoji">📑</span>
+					<div>
+						<label>Tab Management</label>
+						<span class="toggle-desc">Pin, mute, duplicate, close tabs</span>
+					</div>
+				</div>
+				<label class="toggle-switch">
+					<input type="checkbox" data-category="tab-management" checked>
+					<span class="toggle-slider"></span>
+				</label>
+			</div>
+
+			<div class="toggle-row">
+				<div class="toggle-info">
+					<span class="toggle-emoji">🔗</span>
+					<div>
+						<label>.new Shortcuts</label>
+						<span class="toggle-desc">Notion, Google Docs, Figma, GitHub, etc.</span>
+					</div>
+				</div>
+				<label class="toggle-switch">
+					<input type="checkbox" data-category="new-links" checked>
+					<span class="toggle-slider"></span>
+				</label>
+			</div>
+
+			<div class="toggle-row">
+				<div class="toggle-info">
+					<span class="toggle-emoji">🌐</span>
+					<div>
+						<label>Browser Actions</label>
+						<span class="toggle-desc">History, downloads, extensions, settings, clear data</span>
+					</div>
+				</div>
+				<label class="toggle-switch">
+					<input type="checkbox" data-category="browser-actions" checked>
+					<span class="toggle-slider"></span>
+				</label>
+			</div>
+
+			<div class="toggle-row">
+				<div class="toggle-info">
+					<span class="toggle-emoji">🧭</span>
+					<div>
+						<label>Navigation</label>
+						<span class="toggle-desc">Scroll, go back/forward, fullscreen</span>
+					</div>
+				</div>
+				<label class="toggle-switch">
+					<input type="checkbox" data-category="navigation" checked>
+					<span class="toggle-slider"></span>
+				</label>
+			</div>
+		</section>
+
+		<section class="settings-section">
+			<h2>Keyboard Shortcut</h2>
+			<div class="setting-row shortcut-row">
+				<div class="setting-info">
+					<label>Open Omni</label>
+					<span class="setting-desc">Default: <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd></span>
+				</div>
+				<button id="change-shortcut" class="btn-secondary">Change Shortcut</button>
+			</div>
+		</section>
+
+		<div class="settings-footer">
+			<span class="save-status" id="save-status"></span>
+			<a href="https://github.com/alyssaxuu/omni" target="_blank" class="footer-link">GitHub</a>
+		</div>
+	</div>
+
+	<script src="options.js"></script>
+</body>
+</html>

@@ -1,65 +1,102 @@
-/* Scrollbar size */
-.omni-extension ::-webkit-scrollbar {
-	width: 10px;
-	height: 10px;
-}
+/* ============================================
+   Omni — macOS Spotlight inspired UI
+   ============================================ */
 
+/* Scrollbar */
+.omni-extension ::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
 .omni-extension ::-webkit-scrollbar-thumb {
-	background-color: rgba(127, 127, 127, 0.6);
+	background-color: rgba(127, 127, 127, 0.35);
 	background-clip: padding-box;
 	border: 2px solid transparent;
-	border-radius: 5px;
+	border-radius: 8px;
 }
-
-.omni-extension ::-webkit-scrollbar-thumb:vertical:hover,
-.omni-extension ::-webkit-scrollbar-thumb:horizontal:hover {
-	background-color: rgb(110, 110, 110);
+.omni-extension ::-webkit-scrollbar-thumb:vertical:hover {
+	background-color: rgba(127, 127, 127, 0.55);
 }
-
 .omni-extension ::-webkit-scrollbar-track {
 	background-color: transparent;
 }
-
-.omni-extension ::-webkit-scrollbar-thumb:vertical:active,
-.omni-extension ::-webkit-scrollbar-thumb:horizontal:active {
-	background: rgba(95, 91, 91, 1);
-}
-
 .omni-extension ::-webkit-scrollbar-corner {
 	background: none;
 }
 
+/* ============================================
+   THEME TOKENS
+   ============================================ */
+
+.omni-theme-dark, #omni-extension-toast.omni-theme-dark {
+	--background: rgba(30, 30, 34, 0.98);
+	--border: rgba(255, 255, 255, 0.10);
+	--text: #f5f5f7;
+	--text-2: #e5e5e7;
+	--text-3: #98989d;
+	--text-4: #6e6e73;
+	--accent: #6068d2;
+	--accent-glow: rgba(96, 104, 210, 0.40);
+	--shortcut: rgba(255, 255, 255, 0.10);
+	--shortcut-border: rgba(255, 255, 255, 0.06);
+	--placeholder: #6e6e73;
+	--shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 8px 24px rgba(0, 0, 0, 0.35);
+	--overlay: rgba(0, 0, 0, 0.35);
+}
+
+.omni-theme-light, #omni-extension-toast.omni-theme-light {
+	--background: rgba(245, 245, 247, 0.98);
+	--border: rgba(0, 0, 0, 0.08);
+	--text: #1d1d1f;
+	--text-2: #1d1d1f;
+	--text-3: #6e6e73;
+	--text-4: #86868b;
+	--accent: #6068d2;
+	--accent-glow: rgba(96, 104, 210, 0.30);
+	--shortcut: rgba(0, 0, 0, 0.06);
+	--shortcut-border: rgba(0, 0, 0, 0.04);
+	--placeholder: #86868b;
+	--shadow: 0 24px 60px rgba(0, 0, 0, 0.20), 0 8px 24px rgba(0, 0, 0, 0.10);
+	--overlay: rgba(0, 0, 0, 0.18);
+}
+
 @media (prefers-color-scheme: dark) {
-	.omni-extension {
-		--background: #1e2128;
-		--border: #35373e;
-		--text: #f1f1f1;
-		--text-2: #c5c6ca;
-		--text-3: #a5a5ae;
-		--select: #17191e;
+	.omni-theme-system, #omni-extension-toast.omni-theme-system {
+		--background: rgba(30, 30, 34, 0.98);
+		--border: rgba(255, 255, 255, 0.10);
+		--text: #f5f5f7;
+		--text-2: #e5e5e7;
+		--text-3: #98989d;
+		--text-4: #6e6e73;
 		--accent: #6068d2;
-		--accent-hover: #484fac;
-		--shortcut: #383e4a;
-		--placeholder: #63687b;
-		--background-2: #292d36;
+		--accent-glow: rgba(96, 104, 210, 0.40);
+		--shortcut: rgba(255, 255, 255, 0.10);
+		--shortcut-border: rgba(255, 255, 255, 0.06);
+		--placeholder: #6e6e73;
+		--shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 8px 24px rgba(0, 0, 0, 0.35);
+		--overlay: rgba(0, 0, 0, 0.35);
 	}
 }
 @media (prefers-color-scheme: light) {
-	.omni-extension {
-		--background: #fafcff;
-		--border: #f2f3fb;
-		--text: #2b2d41;
-		--text-2: #2b2d41;
-		--text-3: #929db2;
-		--select: #eff3f9;
+	.omni-theme-system, #omni-extension-toast.omni-theme-system {
+		--background: rgba(245, 245, 247, 0.98);
+		--border: rgba(0, 0, 0, 0.08);
+		--text: #1d1d1f;
+		--text-2: #1d1d1f;
+		--text-3: #6e6e73;
+		--text-4: #86868b;
 		--accent: #6068d2;
-		--accent-hover: #484fac;
-		--shortcut: #dadeea;
-		--placeholder: #bac2d1;
-		--background-2: #292d36;
+		--accent-glow: rgba(96, 104, 210, 0.30);
+		--shortcut: rgba(0, 0, 0, 0.06);
+		--shortcut-border: rgba(0, 0, 0, 0.04);
+		--placeholder: #86868b;
+		--shadow: 0 24px 60px rgba(0, 0, 0, 0.20), 0 8px 24px rgba(0, 0, 0, 0.10);
+		--overlay: rgba(0, 0, 0, 0.18);
 	}
 }
 
+/* ============================================
+   FONTS
+   ============================================ */
 @font-face {
 	font-family: "Inter";
 	font-style: normal;
@@ -84,296 +121,314 @@
 	font-weight: 700;
 	src: url("chrome-extension://__MSG_@@extension_id__/assets/Inter-Bold.ttf");
 }
-.omni-extension * {
+
+/* ============================================
+   RESET — isolate from host page styles
+   ============================================ */
+.omni-extension,
+.omni-extension *,
+#omni-extension-toast,
+#omni-extension-toast * {
+	all: unset;
+	box-sizing: border-box !important;
+	font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
+	-webkit-font-smoothing: antialiased !important;
+	letter-spacing: -0.01em !important;
+}
+
+.omni-extension,
+#omni-extension-toast {
 	display: block;
-	width: unset;
-	box-shadow: unset;
-	padding: unset;
-	margin: unset;
-	background-color: unset;
-	border-radius: unset;
 }
-.omni-extension .omni-item-details * {
-	line-height: normal;
-}
+
+/* ============================================
+   LAYOUT
+   ============================================ */
 .omni-extension {
-	font-family: Inter !important;
 	z-index: 99999999999;
 }
+
 .omni-extension #omni-wrap {
-	position: fixed;
-	width: 700px;
-	border: 1px solid transparent;
-	border-radius: 5px;
-	margin: auto;
-	top: 0px;
-	right: 0px;
-	bottom: 0px;
-	left: 0px;
+	position: fixed !important;
+	top: 0 !important;
+	left: 0 !important;
+	right: 0 !important;
+	bottom: 0 !important;
+	/* NO width/height 100vw/100vh — those include scrollbar width and can
+	   trigger host-page layout loops. inset-based sizing respects scrollbars. */
+	display: flex !important;
+	align-items: flex-start;
+	justify-content: center;
+	padding-top: 22vh;
 	z-index: 9999999999;
-	height: 540px;
-	transition: all 0.2s cubic-bezier(0.05, 0.03, 0.35, 1);
-	pointer-events: all;
+	pointer-events: none;
+	transform: none !important;
 }
+
 .omni-extension #omni {
-	position: absolute;
-	width: 100%;
+	display: block;
+	width: 680px;
+	max-width: calc(100% - 32px);
 	background: var(--background);
 	border: 1px solid var(--border);
-	border-radius: 5px;
-	top: 0px;
-	left: 0px;
-	z-index: 9999999998;
-	height: fit-content;
-	transition: all 0.2s cubic-bezier(0.05, 0.03, 0.35, 1);
-	display: block;
+	border-radius: 14px;
+	box-shadow: var(--shadow);
+	overflow: hidden;
+	transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease-out;
+	pointer-events: auto;
 }
+
 .omni-closing #omni {
-	transform: scale(0.9);
+	transform: scale(0.96) translateY(-8px);
 	opacity: 0;
 }
 .omni-closing {
-	pointer-events: none;
-	display: none !important;
+	pointer-events: none !important;
+	visibility: hidden !important;
+	opacity: 0 !important;
 }
+
 .omni-extension #omni-overlay {
-	height: 100%;
-	width: 100%;
+	display: block;
 	position: fixed;
-	top: 0px;
-	left: 0px;
-	background-color: #000;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background-color: var(--overlay);
 	z-index: 9999;
-	opacity: 0.6;
-	transition: all 0.1s cubic-bezier(0.05, 0.03, 0.35, 1);
+	transition: opacity 0.15s ease-out;
 }
 .omni-closing #omni-overlay {
 	opacity: 0 !important;
 }
-.omni-extension #omni-head {
-	height: 50px;
-	line-height: 50px;
-	width: 95%;
-	margin-left: auto;
-	margin-right: auto;
+
+/* ============================================
+   SEARCH INPUT
+   ============================================ */
+.omni-extension #omni-search {
+	display: block;
 	border-bottom: 1px solid var(--border);
 }
-.omni-extension #omni-name {
-	color: var(--text);
-	font-size: 12px;
-	font-weight: 600;
-	float: left;
-}
-.omni-extension #omni-close {
-	color: var(--text-3);
-	float: right;
-	font-size: 12px;
-	font-weight: 500;
-}
-.omni-extension #omni-close span {
-	margin-left: 3px;
-}
-.omni-extension .omni-shortcut {
-	display: inline-block !important;
-	font-size: 13px;
-	border-radius: 5px;
-	background-color: var(--shortcut);
-	color: var(--text);
-	text-align: center;
-	height: 20px;
-	line-height: 20px;
-	min-width: 20px;
-	padding-left: 3px;
-	padding-right: 3px;
-}
+
 .omni-extension input {
-	background: transparent;
-	border: 0px;
-	outline: none;
-	font-size: 20px;
-	font-weight: 400;
-	height: 50px;
-	width: 92%;
-	margin-left: auto;
-	margin-right: auto;
 	display: block;
-	color: var(--text);
-	caret-color: var(--accent);
-	font-family: Inter !important;
-	margin-top: 5px;
-	margin-bottom: 5px;
-	box-sizing: border-box;
+	background: transparent;
+	border: 0;
 	outline: none;
-	border: 0px;
-	box-shadow: none;
-}
-.omni-extension ::placeholder {
-	color: var(--placeholder);
-	opacity: 1;
-}
-.omni-extension :-ms-input-placeholder {
-	color: var(--placeholder);
-}
-.omni-extension ::-ms-input-placeholder {
-	color: var(--placeholder);
-}
-.omni-extension #omni-list {
-	width: 100%;
-	overflow: overlay;
-	height: 100%;
-	max-height: 400px;
-	border-top: 1px solid var(--border);
-	position: relative;
-}
-.omni-extension .omni-item {
+	font-size: 22px !important;
+	font-weight: 400 !important;
 	height: 60px;
 	width: 100%;
+	color: var(--text) !important;
+	caret-color: var(--accent);
+	padding: 0 22px !important;
+	letter-spacing: -0.02em !important;
 }
-.omni-extension .omni-item:hover {
+.omni-extension input::placeholder {
+	color: var(--placeholder) !important;
+	opacity: 1;
+	font-weight: 400;
+}
+
+/* ============================================
+   LIST
+   ============================================ */
+.omni-extension #omni-list {
+	display: block;
+	width: 100%;
+	overflow-y: auto;
+	overflow-x: hidden;
+	max-height: 432px;
+	padding: 6px;
+	transform: translateZ(0);
+}
+
+.omni-extension .omni-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	height: 48px;
+	width: 100%;
+	border-radius: 8px;
+	padding: 0 12px;
 	cursor: pointer;
 }
-.omni-extension .omni-item-active {
-	background-color: var(--select);
-	position: relative;
+
+.omni-extension .omni-item.omni-hidden {
+	display: none !important;
 }
-.omni-extension .omni-item-active:before {
-	height: 100%;
-	position: absolute;
-	display: block;
-	content: "";
-	width: 2px;
+
+.omni-extension .omni-item-active {
 	background-color: var(--accent);
 }
-.omni-extension .omni-select {
-	float: right;
-	vertical-align: middle;
-	color: var(--text-3);
-	font-size: 12px;
-	font-weight: 500;
-	display: none;
-	margin-top: 20px;
-	margin-right: 5%;
-}
-.omni-extension .omni-select span {
-	margin-left: 3px;
-}
-.omni-extension .omni-item-active .omni-select {
-	display: block !important;
-}
+
+/* Icon */
 .omni-extension .omni-icon {
-	width: 20px;
-	height: 20px;
-	margin-left: 5%;
-	display: inline-block;
-	vertical-align: middle;
-	margin-top: -12px;
+	display: block;
+	width: 22px;
+	height: 22px;
+	flex: 0 0 22px;
+	border-radius: 4px;
+	object-fit: contain;
 }
 .omni-extension .omni-emoji-action {
-	display: inline-block;
-	vertical-align: middle;
-	margin-top: -12px;
-	width: 20px;
-	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	flex: 0 0 22px;
+	font-size: 18px !important;
 	text-align: center;
-	margin-left: 5%;
-	font-size: 18px;
 }
+
+/* Details */
 .omni-extension .omni-item-details {
-	display: inline-block !important;
-	margin-left: 10px;
-	vertical-align: middle;
-	margin-top: 10px;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
 }
 .omni-extension .omni-item-name {
-	color: var(--text-2);
-	font-size: 14px;
-	font-weight: 500;
+	display: block;
+	color: var(--text) !important;
+	font-size: 14px !important;
+	font-weight: 500 !important;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	width: 460px;
+	flex: 0 1 auto;
+	max-width: 65%;
 }
 .omni-extension .omni-item-active .omni-item-name {
-	color: var(--text) !important;
+	color: #ffffff !important;
 }
 .omni-extension .omni-item-desc {
-	color: var(--text-3);
-	margin-top: 5px;
-	font-size: 14px;
+	display: block;
+	color: var(--text-3) !important;
+	font-size: 12px !important;
+	font-weight: 400 !important;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	width: 460px;
+	flex: 1 1 auto;
+	min-width: 0;
 }
-.omni-extension #omni-footer {
-	height: 45px;
-	line-height: 45px;
-	border-top: 1px solid var(--border);
-	width: 92%;
-	margin-left: auto;
-	margin-right: auto;
+.omni-extension .omni-item-active .omni-item-desc {
+	color: rgba(255, 255, 255, 0.78) !important;
 }
-.omni-extension #omni-results {
-	color: var(--text-3);
-	font-size: 12px;
-	font-weight: 500;
-	float: left;
-}
-.omni-extension #omni-arrows {
-	color: var(--text-3);
-	font-size: 12px;
-	font-weight: 500;
-	float: right;
-}
-.omni-extension #omni-arrows span {
-	margin-left: 3px;
-	margin-right: 3px;
-}
+
+/* Keyboard shortcut hints */
 .omni-extension .omni-keys {
-	float: right;
-	vertical-align: middle;
-	font-weight: 500;
-	margin-top: 20px;
-	margin-right: 5%;
+	display: flex;
+	gap: 3px;
+	flex-shrink: 0;
+	align-items: center;
 }
 .omni-extension .omni-item-active .omni-keys {
 	display: none !important;
 }
-.omni-extension .omni-keys span {
-	margin-left: 3px;
+.omni-extension .omni-shortcut {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 11px !important;
+	font-weight: 500 !important;
+	border-radius: 4px;
+	background-color: var(--shortcut);
+	border: 1px solid var(--shortcut-border);
+	color: var(--text-2) !important;
+	height: 18px;
+	min-width: 18px;
+	padding: 0 4px !important;
 }
+
+/* Select indicator */
+.omni-extension .omni-select {
+	display: none;
+	font-size: 11px !important;
+	font-weight: 500 !important;
+	color: rgba(255, 255, 255, 0.85) !important;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 6px;
+}
+.omni-extension .omni-item-active .omni-select {
+	display: flex;
+}
+.omni-extension .omni-item-active .omni-select .omni-shortcut {
+	background-color: rgba(255, 255, 255, 0.20) !important;
+	border-color: rgba(255, 255, 255, 0.10) !important;
+	color: #ffffff !important;
+}
+
+/* ============================================
+   FOOTER
+   ============================================ */
+.omni-extension #omni-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 36px;
+	border-top: 1px solid var(--border);
+	padding: 0 16px;
+}
+.omni-extension #omni-results {
+	display: block;
+	color: var(--text-4) !important;
+	font-size: 11px !important;
+	font-weight: 500 !important;
+}
+.omni-extension #omni-arrows {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--text-4) !important;
+	font-size: 11px !important;
+	font-weight: 500 !important;
+}
+.omni-extension #omni-arrows .omni-shortcut {
+	margin: 0 2px;
+}
+
+/* ============================================
+   TOAST
+   ============================================ */
 #omni-extension-toast {
-	text-align: center;
-	font-family: Inter;
-	font-weight: 500;
-	font-size: 14px;
+	display: flex;
+	align-items: center;
+	font-weight: 500 !important;
+	font-size: 13px !important;
 	position: fixed;
 	width: fit-content;
-	color: var(--text);
-	bottom: 10px;
-	left: 0px;
-	right: 0px;
-	margin: auto;
+	color: var(--text) !important;
+	bottom: 20px;
+	left: 0;
+	right: 0;
+	margin: 0 auto;
 	background: var(--background);
-	border-radius: 5px;
-	height: 40px;
-	line-height: 40px;
-	display: block;
-	padding-left: 10px;
-	padding-right: 10px;
+	border: 1px solid var(--border);
+	box-shadow: var(--shadow);
+	border-radius: 10px;
+	height: 38px;
+	padding: 0 14px !important;
 	visibility: hidden;
 	opacity: 0;
-	transition: all 0.2s cubic-bezier(0.05, 0.03, 0.35, 1);
+	transform: translateY(8px);
+	transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 	z-index: 99999999;
 }
 #omni-extension-toast img {
 	display: inline-block;
-	margin-right: 5px;
-	vertical-align: middle;
-	margin-bottom: 2px;
+	margin-right: 8px;
+	width: 14px;
+	height: 14px;
 }
 .omni-show-toast {
-	bottom: 20px !important;
 	opacity: 1 !important;
 	visibility: visible !important;
+	transform: translateY(0) !important;
 }

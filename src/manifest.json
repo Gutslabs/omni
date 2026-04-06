@@ -2,7 +2,7 @@
 	"name": "Omni - Bookmark, History, & Tab Manager",
 	"description": "Supercharge Chrome with commands, shortcuts, and more",
 	"offline_enabled": true,
-	"version": "1.4.7",
+	"version": "2.0.0",
 	"manifest_version": 3,
 	"action": {
 		"icons": {
@@ -25,6 +25,7 @@
 			"description": "Open command menu"
 		}
 	},
+	"options_page": "options.html",
 	"background": {
 		"service_worker": "background.js"
 	},
@@ -34,18 +35,18 @@
 				"<all_urls>"
 			],
 			"run_at": "document_end",
-			"js": ["focus.js", "jquery.js", "content.js", "virtualized-list.min.js"],
+			"js": ["focus.js", "content.js", "virtualized-list.min.js"],
 			"css": ["content.css"]
 		}
 	],
 	"web_accessible_resources": [
 		{
-			"resources":  ["content.html", "newtab.html", "assets/*", "popup.css", "popup.js"],
+			"resources":  ["content.html", "newtab.html", "assets/*"],
 			"matches": ["<all_urls>"]
 		}
 	],
 	"permissions": [
-		"tabs", "activeTab", "bookmarks", "browsingData", "history", "scripting", "search"
+		"tabs", "activeTab", "bookmarks", "browsingData", "history", "scripting", "search", "storage"
 	],
 	"host_permissions": [
 		"https://www.googleapis.com/*", "https://gstatic.com/*", "*://*/*"
