@@ -565,13 +565,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			});
 			return true;
 		case "switch-tab":
-			switchTab(message.tab);
+			switchTab(message.tab || senderTab);
 			break;
 		case "go-back":
-			goBack(message.tab);
+			goBack(senderTab);
 			break;
 		case "go-forward":
-			goForward(message.tab);
+			goForward(senderTab);
 			break;
 		case "duplicate-tab":
 			duplicateTab(senderTab);
