@@ -86,15 +86,14 @@ function init() {
 		)).join("") + "</div>";
 	}
 
-	function getIconMarkup(action) {
-		if (action.emoji) {
-			return "<span class='omni-emoji-action'>" + escapeHtml(action.emojiChar) + "</span>";
-		}
+		function getIconMarkup(action) {
+			if (action.emoji) {
+				return "<span class='omni-emoji-action'>" + escapeHtml(action.emojiChar) + "</span>";
+			}
 
-		const iconUrl = escapeHtml(action.favIconUrl || fallbackIconUrl);
-		return "<img src='" + iconUrl + "' alt='' class='omni-icon' loading='lazy' decoding='async' " +
-			"onerror='this.onerror=null;this.src=\"" + fallbackIconUrl + "\"'>";
-	}
+			const iconUrl = escapeHtml(action.favIconUrl || fallbackIconUrl);
+			return "<img src='" + iconUrl + "' alt='' class='omni-icon' loading='lazy' decoding='async'>";
+		}
 
 	function buildActionMarkup(action, index, description) {
 		const hiddenClass = (action.action == "search" || action.action == "goto") ? " omni-hidden" : "";
@@ -119,12 +118,26 @@ function init() {
 		omniVirtualList = null;
 	}
 
-	function clearTimer(timerId) {
+		function clearTimer(timerId) {
 		if (timerId) {
 			window.clearTimeout(timerId);
 		}
-		return 0;
-	}
+			return 0;
+		}
+
+		function bindIconFallback(img) {
+			if (!img || img.dataset.omniIconBound === "1") return;
+			img.dataset.omniIconBound = "1";
+			img.addEventListener("error", () => {
+				if (img.dataset.omniIconFallbackApplied === "1") return;
+				img.dataset.omniIconFallbackApplied = "1";
+				img.src = fallbackIconUrl;
+			});
+		}
+
+		function bindRenderedIconFallbacks(scope) {
+			(scope || document).querySelectorAll(".omni-icon").forEach(bindIconFallback);
+		}
 
 	function getOmniInput() {
 		return $("#omni-extension input");
@@ -331,18 +344,19 @@ function init() {
 	}
 
 	// Add actions to the omni
-	function populateOmni() {
+		function populateOmni() {
 		filteredActions = null;
 		isFiltered = false;
 		activeItemIndex = 0;
 		destroyVirtualList();
 		const omniList = getOmniList();
 		if (!omniList) return;
-		omniList.innerHTML = actions.map((action, index) => (
-			buildActionMarkup(action, index, action.desc)
-		)).join("");
-		syncActiveItem();
-	}
+			omniList.innerHTML = actions.map((action, index) => (
+				buildActionMarkup(action, index, action.desc)
+			)).join("");
+			bindRenderedIconFallbacks(omniList);
+			syncActiveItem();
+		}
 
 	// Add filtered actions to the omni
 	function populateOmniFilter(filterArr) {
@@ -354,13 +368,14 @@ function init() {
 		destroyVirtualList();
 		omniList.innerHTML = "";
 
-		const renderRow = (index) => {
-			const action = filteredActions[index];
-			const row = htmlToElement(buildActionMarkup(action, index, action.url || action.desc || ""));
-			if (index === activeItemIndex) row.classList.add("omni-item-active");
-			row.nodeIndex = index;
-			return row;
-		};
+			const renderRow = (index) => {
+				const action = filteredActions[index];
+				const row = htmlToElement(buildActionMarkup(action, index, action.url || action.desc || ""));
+				if (index === activeItemIndex) row.classList.add("omni-item-active");
+				row.nodeIndex = index;
+				bindRenderedIconFallbacks(row);
+				return row;
+			};
 
 		if (!filteredActions.length) {
 			updateResultsLabel(0);
@@ -371,6 +386,7 @@ function init() {
 			omniList.innerHTML = filteredActions.map((action, index) => (
 				buildActionMarkup(action, index, action.url || action.desc || "")
 			)).join("");
+			bindRenderedIconFallbacks(omniList);
 			setActiveItemByIndex(0, false);
 			updateResultsLabel(filteredActions.length);
 			return;

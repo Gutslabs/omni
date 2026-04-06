@@ -5,6 +5,7 @@ let cachedActionsPromise = null;
 let actionsCacheVersion = 0;
 const ACTION_CACHE_TTL_MS = 1000;
 const restrictedNewTabSources = new Map();
+const fallbackFaviconUrl = chrome.runtime.getURL("assets/globe.svg");
 
 // Category definitions for action toggles
 const CATEGORIES = {
@@ -75,6 +76,22 @@ function canUseContentScript(url) {
 	} catch (e) {
 		return false;
 	}
+}
+
+function getChromeFaviconUrl(url) {
+	if (!url || typeof url !== "string") return fallbackFaviconUrl;
+
+	try {
+		const parsedUrl = new URL(url);
+		if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:" || parsedUrl.protocol === "file:") {
+			const faviconUrl = new URL(chrome.runtime.getURL("/_favicon/"));
+			faviconUrl.searchParams.set("pageUrl", parsedUrl.href);
+			faviconUrl.searchParams.set("size", "32");
+			return faviconUrl.toString();
+		}
+	} catch (e) {}
+
+	return fallbackFaviconUrl;
 }
 
 function openOmniInNewTab(sourceTab) {
@@ -246,13 +263,14 @@ const buildDefaultActions = async () => {
 // Get all tabs as actions (atomic)
 const getTabsAsActions = async () => {
 	const tabs = await chrome.tabs.query({});
-	return tabs.map((tab) => {
-		tab.desc = "Chrome tab";
-		tab.keycheck = false;
-		tab.action = "switch-tab";
-		tab.type = "tab";
-		return tab;
-	});
+	return tabs.map((tab) => ({
+		...tab,
+		desc: "Chrome tab",
+		keycheck: false,
+		action: "switch-tab",
+		type: "tab",
+		favIconUrl: getChromeFaviconUrl(tab.url || tab.pendingUrl || "")
+	}));
 };
 
 // Get recent bookmarks as actions (atomic)
