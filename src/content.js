@@ -39,6 +39,17 @@ function init() {
 	var actions = [];
 	var filteredActions = null; // holds the filtered array when in filter mode
 	var isFiltered = false;
+	var omniVirtualList = null;
+	var activeItemIndex = 0;
+	var filterRequestId = 0;
+	var isOpening = false;
+	var activeFilterRequest = 0;
+	var searchTimer = 0;
+	var focusTimer = 0;
+	var toastTimer = 0;
+	const FILTER_DEBOUNCE_MS = 80;
+	const VIRTUALIZE_THRESHOLD = 40;
+	const fallbackIconUrl = chrome.runtime.getURL("/assets/globe.svg");
 
 	// Load settings then init UI
 	if (!extAlive()) return;
@@ -52,13 +63,170 @@ function init() {
 		});
 	} catch (e) { return; }
 
-	function initUI(settings) {
-		if (!extAlive()) return;
-		// Append the omni into the current page
-		fetch(chrome.runtime.getURL('/content.html'))
-			.then(r => r.text())
-			.then(data => {
-				const container = htmlToElement(data);
+	function escapeHtml(value) {
+		return String(value == null ? "" : value)
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&#39;");
+	}
+
+	function getKeysMarkup(action) {
+		if (!action.keycheck || !Array.isArray(action.keys) || !action.keys.length) return "";
+		return "<div class='omni-keys'>" + action.keys.map((key) => (
+			"<span class='omni-shortcut'>" + escapeHtml(key) + "</span>"
+		)).join("") + "</div>";
+	}
+
+	function getIconMarkup(action) {
+		if (action.emoji) {
+			return "<span class='omni-emoji-action'>" + escapeHtml(action.emojiChar) + "</span>";
+		}
+
+		const iconUrl = escapeHtml(action.favIconUrl || fallbackIconUrl);
+		return "<img src='" + iconUrl + "' alt='' class='omni-icon' loading='lazy' decoding='async' " +
+			"onerror='this.onerror=null;this.src=\"" + fallbackIconUrl + "\"'>";
+	}
+
+	function buildActionMarkup(action, index, description) {
+		const hiddenClass = (action.action == "search" || action.action == "goto") ? " omni-hidden" : "";
+		const urlAttr = action.url ? " data-url='" + escapeHtml(action.url) + "'" : "";
+		return (
+			"<div class='omni-item" + hiddenClass + "' data-index='" + index + "' data-type='" + escapeHtml(action.type) + "'" + urlAttr + ">" +
+				getIconMarkup(action) +
+				"<div class='omni-item-details'>" +
+					"<div class='omni-item-name'>" + escapeHtml(action.title) + "</div>" +
+					"<div class='omni-item-desc'>" + escapeHtml(description || "") + "</div>" +
+				"</div>" +
+				getKeysMarkup(action) +
+				"<div class='omni-select'>Select <span class='omni-shortcut'>\u23CE</span></div>" +
+			"</div>"
+		);
+	}
+
+	function destroyVirtualList() {
+		if (omniVirtualList && typeof omniVirtualList.destroy === "function") {
+			omniVirtualList.destroy();
+		}
+		omniVirtualList = null;
+	}
+
+	function clearTimer(timerId) {
+		if (timerId) {
+			window.clearTimeout(timerId);
+		}
+		return 0;
+	}
+
+	function getOmniInput() {
+		return $("#omni-extension input");
+	}
+
+	function getOmniRoot() {
+		return $("#omni-extension");
+	}
+
+	function getOmniList() {
+		return $("#omni-extension #omni-list");
+	}
+
+	function updateResultsLabel(count) {
+		const results = $(".omni-extension #omni-results");
+		if (results) results.textContent = count + " results";
+	}
+
+	function syncActiveItem() {
+		const items = Array.from($$("#omni-extension #omni-list .omni-item"));
+		let visibleCount = 0;
+		let firstVisible = null;
+		let activeVisible = null;
+
+		items.forEach((item) => {
+			if (item.classList.contains("omni-hidden")) return;
+			visibleCount += 1;
+			if (!firstVisible) firstVisible = item;
+			if (item.classList.contains("omni-item-active")) activeVisible = item;
+		});
+
+		if (!activeVisible) {
+			const active = $(".omni-item-active");
+			if (active) active.classList.remove("omni-item-active");
+			if (firstVisible) {
+				firstVisible.classList.add("omni-item-active");
+				activeItemIndex = parseInt(firstVisible.getAttribute("data-index"), 10) || 0;
+			}
+		} else {
+			activeItemIndex = parseInt(activeVisible.getAttribute("data-index"), 10) || 0;
+		}
+
+		updateResultsLabel(visibleCount);
+	}
+
+	function keepItemInView(target) {
+		const list = getOmniList();
+		if (!list || !target) return;
+		const tTop = target.offsetTop;
+		const tBot = tTop + target.offsetHeight;
+		if (tTop < list.scrollTop) {
+			list.scrollTop = tTop;
+		} else if (tBot > list.scrollTop + list.clientHeight) {
+			list.scrollTop = tBot - list.clientHeight;
+		}
+	}
+
+	function setActiveItemByIndex(index, shouldScroll) {
+		const active = $(".omni-item-active");
+		if (active) active.classList.remove("omni-item-active");
+		activeItemIndex = index;
+
+		let target = $(`.omni-item[data-index='${index}']`);
+		if (!target && omniVirtualList) {
+			omniVirtualList.scrollToIndex(index);
+			window.requestAnimationFrame(() => {
+				const rendered = $(`.omni-item[data-index='${index}']`);
+				if (!rendered) return;
+				rendered.classList.add("omni-item-active");
+				if (shouldScroll !== false) keepItemInView(rendered);
+			});
+			return;
+		}
+
+		if (target) {
+			target.classList.add("omni-item-active");
+			if (shouldScroll !== false) keepItemInView(target);
+		}
+	}
+
+	function setOmniVisible(visible) {
+		const omniExt = getOmniRoot();
+		if (omniExt) omniExt.classList.toggle("omni-closing", !visible);
+	}
+
+	function cancelPendingOpen() {
+		filterRequestId += 1;
+		isOpening = false;
+		focusTimer = clearTimer(focusTimer);
+	}
+
+	function scheduleFocus(openRequestId) {
+		focusTimer = clearTimer(focusTimer);
+		focusTimer = window.setTimeout(() => {
+			if (!isOpen || isOpening || filterRequestId !== openRequestId) return;
+			const input = getOmniInput();
+			if (!input) return;
+			input.focus();
+			focusLock.on(input);
+			input.focus();
+		}, 100);
+	}
+
+		function initUI(settings) {
+			if (!extAlive()) return;
+			// Append the omni into the current page
+			fetch(chrome.runtime.getURL('/content.html'))
+				.then(r => r.text())
+				.then(data => {
 				// Append both elements (omni-extension and toast)
 				const tempDiv = document.createElement('div');
 				tempDiv.innerHTML = data;
@@ -71,26 +239,6 @@ function init() {
 				// Apply theme
 				applyTheme(settings.theme);
 				applyAccentColor(settings.accentColor);
-
-				// Request actions from the background
-				if (extAlive()) {
-					try {
-						chrome.runtime.sendMessage({request:"get-actions"}, (response) => {
-							if (response) actions = response.actions;
-						});
-					} catch (err) {}
-				}
-
-				// New tab page workaround
-				if (extAlive() && window.location.href === `chrome-extension://${chrome.runtime.id}/newtab.html`) {
-					isOpen = true;
-					const omniExt = $("#omni-extension");
-					if (omniExt) omniExt.classList.remove("omni-closing");
-					window.setTimeout(() => {
-						const input = $("#omni-extension input");
-						if (input) input.focus();
-					}, 100);
-				}
 
 				// Bind events
 				document.addEventListener("click", (e) => {
@@ -105,16 +253,21 @@ function init() {
 					// Strict overlay match — close only when clicking the overlay itself
 					if (e.target.id === "omni-overlay") closeOmni();
 					if (e.target.closest("#open-page-omni-extension-thing")) openShortcuts();
-				}, true);
+					}, true);
 
-				document.addEventListener("mouseover", (e) => {
-					const item = e.target.closest(".omni-extension .omni-item:not(.omni-item-active)");
-					if (item) hoverItem.call(item);
-				});
+					document.addEventListener("mouseover", (e) => {
+						if (!isOpen) return;
+						const item = e.target.closest(".omni-extension .omni-item:not(.omni-item-active)");
+						if (item) hoverItem.call(item);
+					});
 
-				const omniInput = $(".omni-extension input");
+				const omniInput = getOmniInput();
 				if (omniInput) {
 					omniInput.addEventListener("keyup", search);
+				}
+
+				if (isNewTabPage()) {
+					openOmni();
 				}
 			});
 
@@ -159,106 +312,79 @@ function init() {
 		return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
 	}
 
-	function renderAction(action, index, keys, img) {
-		const hiddenClass = (action.action == "search" || action.action == "goto") ? " omni-hidden" : "";
-		const omniList = $("#omni-extension #omni-list");
-		if (omniList) {
-			omniList.insertAdjacentHTML("beforeend",
-				`<div class='omni-item${hiddenClass}' data-index='${index}' data-type='${action.type}'>${img}<div class='omni-item-details'><div class='omni-item-name'>${action.title}</div><div class='omni-item-desc'>${action.desc}</div></div>${keys}<div class='omni-select'>Select <span class='omni-shortcut'>\u23CE</span></div></div>`
-			);
-		}
-		if (!action.emoji) {
-			var loadimg = new Image();
-			loadimg.src = action.favIconUrl;
-			loadimg.onerror = () => {
-				const el = $(`.omni-item[data-index='${index}'] img`);
-				if (el) el.setAttribute("src", chrome.runtime.getURL("/assets/globe.svg"));
-			}
-		}
-	}
-
 	// Add actions to the omni
 	function populateOmni() {
 		filteredActions = null;
 		isFiltered = false;
-		const omniList = $("#omni-extension #omni-list");
-		if (omniList) omniList.innerHTML = "";
-		actions.forEach((action, index) => {
-			var keys = "";
-			if (action.keycheck) {
-				keys = "<div class='omni-keys'>";
-				action.keys.forEach(function(key){
-					keys += "<span class='omni-shortcut'>"+key+"</span>";
-				});
-				keys += "</div>";
-			}
-
-			if (!action.emoji) {
-				var onload = 'if ("naturalHeight" in this) {if (this.naturalHeight + this.naturalWidth === 0) {this.onerror();return;}} else if (this.width + this.height == 0) {this.onerror();return;}';
-				var img = "<img src='"+action.favIconUrl+"' alt='favicon' onload='"+onload+"' onerror='this.src=\""+chrome.runtime.getURL("/assets/globe.svg")+"\"' class='omni-icon'>";
-				renderAction(action, index, keys, img);
-			} else {
-				var img = "<span class='omni-emoji-action'>"+action.emojiChar+"</span>";
-				renderAction(action, index, keys, img);
-			}
-		});
-		// Mark first VISIBLE item as active
-		const firstVisible = Array.from($$("#omni-extension #omni-list .omni-item")).find(el => !el.classList.contains('omni-hidden'));
-		if (firstVisible) firstVisible.classList.add("omni-item-active");
-		const results = $(".omni-extension #omni-results");
-		if (results) {
-			const visible = Array.from($$("#omni-extension #omni-list .omni-item")).filter(el => !el.classList.contains('omni-hidden')).length;
-			results.textContent = visible + " results";
-		}
+		activeItemIndex = 0;
+		destroyVirtualList();
+		const omniList = getOmniList();
+		if (!omniList) return;
+		omniList.innerHTML = actions.map((action, index) => (
+			buildActionMarkup(action, index, action.desc)
+		)).join("");
+		syncActiveItem();
 	}
 
 	// Add filtered actions to the omni
 	function populateOmniFilter(filterArr) {
 		isFiltered = true;
 		filteredActions = filterArr;
-		const omniList = $("#omni-extension #omni-list");
-		if (omniList) omniList.innerHTML = "";
+		activeItemIndex = 0;
+		const omniList = getOmniList();
+		if (!omniList) return;
+		destroyVirtualList();
+		omniList.innerHTML = "";
+
 		const renderRow = (index) => {
 			const action = filteredActions[index];
-			var keys = "";
-			if (action.keycheck) {
-				keys = "<div class='omni-keys'>";
-				action.keys.forEach(function(key){
-					keys += "<span class='omni-shortcut'>"+key+"</span>";
-				});
-				keys += "</div>";
-			}
-			var img = "<img src='"+action.favIconUrl+"' alt='favicon' onerror='this.src=\""+chrome.runtime.getURL("/assets/globe.svg")+"\"' class='omni-icon'>";
-			if (action.emoji) {
-				img = "<span class='omni-emoji-action'>"+action.emojiChar+"</span>";
-			}
-			const activeClass = index === 0 ? " omni-item-active" : "";
-			return htmlToElement(
-				`<div class='omni-item${activeClass}' data-index='${index}' data-type='${action.type}' data-url='${action.url}'>${img}<div class='omni-item-details'><div class='omni-item-name'>${action.title}</div><div class='omni-item-desc'>${action.url}</div></div>${keys}<div class='omni-select'>Select <span class='omni-shortcut'>\u23CE</span></div></div>`
-			);
+			const row = htmlToElement(buildActionMarkup(action, index, action.url || action.desc || ""));
+			if (index === activeItemIndex) row.classList.add("omni-item-active");
+			row.nodeIndex = index;
+			return row;
+		};
+
+		if (!filteredActions.length) {
+			updateResultsLabel(0);
+			return;
 		}
-		if (filteredActions.length) {
-			new VirtualizedList.default(omniList, {
+
+		if (filteredActions.length <= VIRTUALIZE_THRESHOLD) {
+			omniList.innerHTML = filteredActions.map((action, index) => (
+				buildActionMarkup(action, index, action.url || action.desc || "")
+			)).join("");
+			setActiveItemByIndex(0, false);
+			updateResultsLabel(filteredActions.length);
+			return;
+		}
+
+		omniVirtualList = new VirtualizedList.default(omniList, {
 				height: 400,
 				rowHeight: 60,
 				rowCount: filteredActions.length,
 				renderRow,
 				onMount: () => {
-					const results = $(".omni-extension #omni-results");
-					if (results) results.textContent = filteredActions.length + " results";
+					updateResultsLabel(filteredActions.length);
 				},
 			});
-		}
 	}
 
-	// Safe wrapper for chrome.runtime.sendMessage — returns false if context invalid
-	function safeSend(msg, cb) {
-		if (!extAlive()) return false;
-		try {
-			if (cb) chrome.runtime.sendMessage(msg, cb);
-			else chrome.runtime.sendMessage(msg);
-			return true;
-		} catch (e) { return false; }
+		// Safe wrapper for chrome.runtime.sendMessage — returns false if context invalid
+		function safeSend(msg, cb) {
+			if (!extAlive()) return false;
+			try {
+				if (cb) {
+					chrome.runtime.sendMessage(msg, (response) => {
+						if (chrome.runtime.lastError) {
+							cb();
+							return;
+						}
+						cb(response);
+					});
+				}
+				else chrome.runtime.sendMessage(msg);
+				return true;
+			} catch (e) { return false; }
 	}
 
 	// Helpers to lock/unlock host-page scroll while popup is open.
@@ -272,56 +398,64 @@ function init() {
 		document.body.style.overflow = savedOverflow;
 	}
 
-	// Open the omni
-	function openOmni() {
-		if (!safeSend({request:"get-actions"}, (response) => {
-			if (!response) return;
-			isOpen = true;
-			actions = response.actions;
-			const input = $("#omni-extension input");
-			if (input) input.value = "";
+		// Open the omni
+		function openOmni() {
+			if (isOpen || isOpening) return;
+			if (document.hidden && !isNewTabPage()) return;
+			const openRequestId = ++filterRequestId;
+			isOpening = true;
+			if (!safeSend({request:"get-actions"}, (response) => {
+				if (filterRequestId !== openRequestId) return;
+				isOpening = false;
+				if (!response || (document.hidden && !isNewTabPage())) return;
+				isOpen = true;
+				actions = Array.isArray(response.actions) ? response.actions : [];
+				const input = getOmniInput();
+				if (input) input.value = "";
 			populateOmni();
 			lockScroll();
-			const omniExt = $("#omni-extension");
-			if (omniExt) omniExt.classList.remove("omni-closing");
-			window.setTimeout(() => {
-				if (input) {
-					input.focus();
-					focusLock.on(input);
-					input.focus();
-				}
-			}, 100);
-		})) { return; }
+			setOmniVisible(true);
+			scheduleFocus(openRequestId);
+		})) {
+			isOpening = false;
+			return;
+		}
 	}
 
-	// Close the omni
-	function closeOmni() {
-		const input = $("#omni-extension input");
+		// Close the omni
+		function closeOmni() {
+			if (!isOpen && !isOpening) return;
+			cancelPendingOpen();
+			searchTimer = clearTimer(searchTimer);
+			activeFilterRequest += 1;
+		const input = getOmniInput();
 		if (input) try { focusLock.off(input); } catch (e) {}
 		unlockScroll();
 		if (!extAlive()) {
 			isOpen = false;
-			const omniExt = $("#omni-extension");
-			if (omniExt) omniExt.classList.add("omni-closing");
+			setOmniVisible(false);
 			return;
 		}
 		if (window.location.href === `chrome-extension://${chrome.runtime.id}/newtab.html`) {
+			isOpen = false;
+			setOmniVisible(false);
 			try { chrome.runtime.sendMessage({request:"restore-new-tab"}); } catch (e) {}
 		} else {
 			isOpen = false;
-			const omniExt = $("#omni-extension");
-			if (omniExt) omniExt.classList.add("omni-closing");
+			setOmniVisible(false);
 		}
 	}
 
 	// Force-close without messaging the background (for tab visibility loss)
 	function forceCloseOmni() {
+		cancelPendingOpen();
+		searchTimer = clearTimer(searchTimer);
+		activeFilterRequest += 1;
 		isOpen = false;
-		const input = $("#omni-extension input");
+		const input = getOmniInput();
 		if (input) try { focusLock.off(input); } catch (e) {}
 		unlockScroll();
-		const omniExt = $("#omni-extension");
-		if (omniExt) omniExt.classList.add("omni-closing");
+		setOmniVisible(false);
 	}
 
 	// The newtab page is special — popup is the entire page, don't auto-close it
@@ -331,18 +465,19 @@ function init() {
 		} catch (e) { return false; }
 	};
 
-	// Close popup when the tab is hidden (tab switch, window hide, minimize)
-	// NOTE: intentionally NOT listening to window.blur — it fires spuriously on
-	// pages with iframes or resize loops and would cause a close/open oscillation.
-	document.addEventListener("visibilitychange", () => {
-		if (document.hidden && isOpen && !isNewTabPage()) forceCloseOmni();
-	});
+		// Close popup when the tab is hidden (tab switch, window hide, minimize)
+		// NOTE: intentionally NOT listening to window.blur — it fires spuriously on
+		// pages with iframes or resize loops and would cause a close/open oscillation.
+		document.addEventListener("visibilitychange", () => {
+			if (document.hidden && (isOpen || isOpening) && !isNewTabPage()) forceCloseOmni();
+		});
 
 	// Hover over an action in the omni
 	function hoverItem() {
 		const active = $(".omni-item-active");
 		if (active) active.classList.remove("omni-item-active");
 		this.classList.add("omni-item-active");
+		activeItemIndex = parseInt(this.getAttribute("data-index"), 10) || 0;
 	}
 
 	// Show a toast when an action has been performed
@@ -351,7 +486,8 @@ function init() {
 		if (toastSpan) toastSpan.textContent = '"' + action.title + '" has been successfully performed';
 		const toast = $("#omni-extension-toast");
 		if (toast) toast.classList.add("omni-show-toast");
-		setTimeout(() => {
+		toastTimer = clearTimer(toastTimer);
+		toastTimer = window.setTimeout(() => {
 			const showToast = $(".omni-show-toast");
 			if (showToast) showToast.classList.remove("omni-show-toast");
 		}, 3000);
@@ -399,8 +535,9 @@ function init() {
 
 	// Helper to show/hide elements using class (resilient to `all: unset` reset)
 	function toggleItem(el, show) {
-		if (show) el.classList.remove('omni-hidden');
-		else el.classList.add('omni-hidden');
+		const hidden = el.classList.contains('omni-hidden');
+		if (show && hidden) el.classList.remove('omni-hidden');
+		else if (!show && !hidden) el.classList.add('omni-hidden');
 	}
 
 	function getItemByAction(actionName) {
@@ -417,6 +554,7 @@ function init() {
 
 	// Search for an action in the omni
 	function search(e) {
+		if (!isOpen) return;
 		if (e.keyCode == 37 || e.keyCode == 38 || e.keyCode == 39 || e.keyCode == 40 || e.keyCode == 13) {
 			return;
 		}
@@ -431,25 +569,54 @@ function init() {
 			if (tempvalue != "/history") {
 				query = value.replace("/history ", "");
 			}
-			safeSend({request:"search-history", query:query}, (response) => {
-				if (response) populateOmniFilter(response.history);
-			});
+			const requestId = ++activeFilterRequest;
+			searchTimer = clearTimer(searchTimer);
+			searchTimer = window.setTimeout(() => {
+					safeSend({request:"search-history", query:query}, (response) => {
+						if (!response || requestId !== activeFilterRequest || !isOpen) return;
+						populateOmniFilter(Array.isArray(response.history) ? response.history : []);
+					});
+				}, FILTER_DEBOUNCE_MS);
+			return;
 		} else if (value.startsWith("/bookmarks")) {
 			hideSearchAndGoto();
 			var tempvalue = value.replace("/bookmarks ", "");
 			if (tempvalue != "/bookmarks" && tempvalue != "") {
 				var query = value.replace("/bookmarks ", "");
-				safeSend({request:"search-bookmarks", query:query}, (response) => {
-					if (response) populateOmniFilter(response.bookmarks);
-				});
+				const requestId = ++activeFilterRequest;
+				searchTimer = clearTimer(searchTimer);
+				searchTimer = window.setTimeout(() => {
+						safeSend({request:"search-bookmarks", query:query}, (response) => {
+							if (!response || requestId !== activeFilterRequest || !isOpen) return;
+							populateOmniFilter(Array.isArray(response.bookmarks) ? response.bookmarks : []);
+						});
+					}, FILTER_DEBOUNCE_MS);
 			} else {
+				searchTimer = clearTimer(searchTimer);
+				activeFilterRequest += 1;
 				populateOmniFilter(actions.filter(x => x.type == "bookmark"));
 			}
+			return;
 		} else {
+			searchTimer = clearTimer(searchTimer);
+			activeFilterRequest += 1;
 			if (isFiltered) {
 				populateOmni();
 			}
 			const items = $$("#omni-extension #omni-list .omni-item");
+			const searchEl = getItemByAction("search");
+			const gotoEl = getItemByAction("goto");
+			const isTabsCommand = value.startsWith("/tabs");
+			const isRemoveCommand = value.startsWith("/remove");
+			const isActionsCommand = value.startsWith("/actions");
+			const tabsValue = value.replace("/tabs ", "");
+			const removeValue = value.replace("/remove ", "");
+			const actionsValue = value.replace("/actions ", "");
+
+			if (isTabsCommand || isRemoveCommand || isActionsCommand) {
+				hideSearchAndGoto();
+			}
+
 			items.forEach((el) => {
 				const name = $(".omni-item-name", el);
 				const desc = $(".omni-item-desc", el);
@@ -457,34 +624,26 @@ function init() {
 				const descText = desc ? desc.textContent.toLowerCase() : "";
 				const type = el.getAttribute("data-type");
 
-				if (value.startsWith("/tabs")) {
-					hideSearchAndGoto();
-					var tempvalue = value.replace("/tabs ", "");
-					if (tempvalue == "/tabs") {
+				if (isTabsCommand) {
+					if (tabsValue == "/tabs") {
 						toggleItem(el, type == "tab");
 					} else {
-						toggleItem(el, (nameText.indexOf(tempvalue) > -1 || descText.indexOf(tempvalue) > -1) && type == "tab");
+						toggleItem(el, (nameText.indexOf(tabsValue) > -1 || descText.indexOf(tabsValue) > -1) && type == "tab");
 					}
-				} else if (value.startsWith("/remove")) {
-					hideSearchAndGoto();
-					var tempvalue = value.replace("/remove ", "");
-					if (tempvalue == "/remove") {
+				} else if (isRemoveCommand) {
+					if (removeValue == "/remove") {
 						toggleItem(el, type == "bookmark" || type == "tab");
 					} else {
-						toggleItem(el, (nameText.indexOf(tempvalue) > -1 || descText.indexOf(tempvalue) > -1) && (type == "bookmark" || type == "tab"));
+						toggleItem(el, (nameText.indexOf(removeValue) > -1 || descText.indexOf(removeValue) > -1) && (type == "bookmark" || type == "tab"));
 					}
-				} else if (value.startsWith("/actions")) {
-					hideSearchAndGoto();
-					var tempvalue = value.replace("/actions ", "");
-					if (tempvalue == "/actions") {
+				} else if (isActionsCommand) {
+					if (actionsValue == "/actions") {
 						toggleItem(el, type == "action");
 					} else {
-						toggleItem(el, (nameText.indexOf(tempvalue) > -1 || descText.indexOf(tempvalue) > -1) && type == "action");
+						toggleItem(el, (nameText.indexOf(actionsValue) > -1 || descText.indexOf(actionsValue) > -1) && type == "action");
 					}
 				} else {
 					toggleItem(el, nameText.indexOf(value) > -1 || descText.indexOf(value) > -1);
-					const searchEl = getItemByAction("search");
-					const gotoEl = getItemByAction("goto");
 					if (value == "") {
 						if (searchEl) searchEl.classList.add('omni-hidden');
 						if (gotoEl) gotoEl.classList.add('omni-hidden');
@@ -503,19 +662,12 @@ function init() {
 			});
 		}
 
-		const results = $(".omni-extension #omni-results");
-		const visibleCount = Array.from($$("#omni-extension #omni-list .omni-item")).filter(el => !el.classList.contains('omni-hidden')).length;
-		if (results) results.textContent = visibleCount + " results";
-
-		const active = $(".omni-item-active");
-		if (active) active.classList.remove("omni-item-active");
-		const firstVisible = Array.from($$("#omni-extension #omni-list .omni-item")).find(el => !el.classList.contains('omni-hidden'));
-		if (firstVisible) firstVisible.classList.add("omni-item-active");
+		syncActiveItem();
 	}
 
 	// Handle actions from the omni
-	function handleAction(e) {
-		const activeEl = $(".omni-item-active");
+		function handleAction(e) {
+			const activeEl = $(".omni-item-active");
 		if (!activeEl) return;
 		const idx = parseInt(activeEl.getAttribute("data-index"));
 		const sourceArray = isFiltered && filteredActions ? filteredActions : actions;
@@ -533,19 +685,18 @@ function init() {
 			} else {
 				window.open(activeEl.getAttribute("data-url"), "_self");
 			}
-		} else if (lowerInput.startsWith("/bookmarks")) {
-			if (e.ctrlKey || e.metaKey) {
-				window.open(activeEl.getAttribute("data-url"));
+			} else if (lowerInput.startsWith("/bookmarks")) {
+				if (e.ctrlKey || e.metaKey) {
+					window.open(activeEl.getAttribute("data-url"));
+				} else {
+					window.open(activeEl.getAttribute("data-url"), "_self");
+				}
 			} else {
-				window.open(activeEl.getAttribute("data-url"), "_self");
-			}
-		} else {
-			safeSend({request:action.action, tab:action, query:inputVal});
-			switch (action.action) {
-				case "bookmark":
-					if (e.ctrlKey || e.metaKey) {
-						window.open(action.url);
-					} else {
+				switch (action.action) {
+					case "bookmark":
+						if (e.ctrlKey || e.metaKey) {
+							window.open(action.url);
+						} else {
 						window.open(action.url, "_self");
 					}
 					break;
@@ -561,18 +712,18 @@ function init() {
 						window.open(action.url);
 					} else {
 						window.open(action.url, "_self");
-					}
-					break;
-				case "fullscreen":
-					document.documentElement.requestFullscreen();
-					break;
-				case "new-tab":
-					window.open("");
-					break;
-				case "email":
-					window.open("mailto:");
-					break;
-				case "url":
+						}
+						break;
+					case "fullscreen":
+						document.documentElement.requestFullscreen().catch(() => {});
+						break;
+					case "new-tab":
+						window.open("about:blank");
+						break;
+					case "email":
+						window.open("mailto:");
+						break;
+					case "url":
 					if (e.ctrlKey || e.metaKey) {
 						window.open(action.url);
 					} else {
@@ -585,28 +736,43 @@ function init() {
 					} else {
 						window.open(addhttp(inputVal), "_self");
 					}
-					break;
-				case "print":
-					window.print();
-					break;
-				case "remove-all":
-				case "remove-history":
-				case "remove-cookies":
-				case "remove-cache":
-				case "remove-local-storage":
-				case "remove-passwords":
-					showToast(action);
-					break;
+						break;
+					case "print":
+						window.print();
+						break;
+					case "switch-tab":
+					case "go-back":
+					case "go-forward":
+					case "duplicate-tab":
+					case "create-bookmark":
+					case "mute":
+					case "unmute":
+					case "reload":
+					case "pin":
+					case "unpin":
+					case "history":
+					case "downloads":
+					case "extensions":
+					case "settings":
+					case "extensions/shortcuts":
+					case "manage-data":
+					case "incognito":
+					case "close-window":
+					case "close-tab":
+						safeSend({request:action.action, tab:action, query:inputVal});
+						break;
+					case "remove-all":
+					case "remove-history":
+					case "remove-cookies":
+					case "remove-cache":
+					case "remove-local-storage":
+					case "remove-passwords":
+						safeSend({request:action.action, tab:action, query:inputVal});
+						showToast(action);
+						break;
+				}
 			}
-		}
 
-		// Fetch actions again
-		safeSend({request:"get-actions"}, (response) => {
-			if (response) {
-				actions = response.actions;
-				populateOmni();
-			}
-		});
 	}
 
 	function openShortcuts() {
@@ -618,6 +784,13 @@ function init() {
 
 	function moveActive(direction) {
 		const active = $(".omni-item-active");
+		const sourceArray = isFiltered && filteredActions ? filteredActions : actions;
+		if (omniVirtualList) {
+			const delta = direction === 'up' ? -1 : 1;
+			const nextIndex = Math.max(0, Math.min(activeItemIndex + delta, sourceArray.length - 1));
+			if (nextIndex !== activeItemIndex) setActiveItemByIndex(nextIndex);
+			return;
+		}
 		if (!active) return;
 		let target = direction === 'up' ? active.previousElementSibling : active.nextElementSibling;
 		while (target && target.classList.contains('omni-hidden')) {
@@ -626,17 +799,8 @@ function init() {
 		if (target) {
 			active.classList.remove("omni-item-active");
 			target.classList.add("omni-item-active");
-			// Scroll only within the list, not the host page
-			const list = $("#omni-extension #omni-list");
-			if (list) {
-				const tTop = target.offsetTop;
-				const tBot = tTop + target.offsetHeight;
-				if (tTop < list.scrollTop) {
-					list.scrollTop = tTop;
-				} else if (tBot > list.scrollTop + list.clientHeight) {
-					list.scrollTop = tBot - list.clientHeight;
-				}
-			}
+			activeItemIndex = parseInt(target.getAttribute("data-index"), 10) || 0;
+			keepItemInView(target);
 		}
 	}
 
@@ -682,29 +846,9 @@ function init() {
 		if (!e.isTrusted) return;
 		if (!extAlive()) { down = []; return; }
 		if (down[18] && down[16] && down[80]) {
-			if (actions.find(x => x.action == "pin") != undefined) {
-				safeSend({request:"pin-tab"});
-			} else {
-				safeSend({request:"unpin-tab"});
-			}
-			safeSend({request:"get-actions"}, (response) => {
-				if (response) {
-					actions = response.actions;
-					populateOmni();
-				}
-			});
+			safeSend({request:"toggle-pin"});
 		} else if (down[18] && down[16] && down[77]) {
-			if (actions.find(x => x.action == "mute") != undefined) {
-				safeSend({request:"mute-tab"});
-			} else {
-				safeSend({request:"unmute-tab"});
-			}
-			safeSend({request:"get-actions"}, (response) => {
-				if (response) {
-					actions = response.actions;
-					populateOmni();
-				}
-			});
+			safeSend({request:"toggle-mute"});
 		} else if (down[18] && down[16] && down[67]) {
 			window.open("mailto:");
 		}
@@ -717,7 +861,7 @@ function init() {
 		chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			if (!extAlive()) return;
 			if (message.request == "open-omni") {
-				if (isOpen) {
+				if (isOpen || isOpening) {
 					closeOmni();
 				} else {
 					openOmni();

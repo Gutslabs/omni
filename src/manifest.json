@@ -35,7 +35,7 @@
 				"<all_urls>"
 			],
 			"run_at": "document_end",
-			"js": ["focus.js", "content.js", "virtualized-list.min.js"],
+			"js": ["focus.js", "virtualized-list.min.js", "content.js"],
 			"css": ["content.css"]
 		}
 	],

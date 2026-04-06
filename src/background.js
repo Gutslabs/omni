@@ -1,5 +1,10 @@
 let actions = [];
-let newtaburl = "";
+let cachedActions = null;
+let cachedActionsAt = 0;
+let cachedActionsPromise = null;
+let actionsCacheVersion = 0;
+const ACTION_CACHE_TTL_MS = 1000;
+const restrictedNewTabSources = new Map();
 
 // Category definitions for action toggles
 const CATEGORIES = {
@@ -25,17 +30,108 @@ function filterByCategories(allActions, disabledCategories) {
 	});
 }
 
+function invalidateActionsCache() {
+	cachedActions = null;
+	cachedActionsAt = 0;
+	cachedActionsPromise = null;
+	actionsCacheVersion += 1;
+}
+
+async function getActionsSnapshot(force = false) {
+	const version = actionsCacheVersion;
+	const now = Date.now();
+	if (!force && cachedActions && (now - cachedActionsAt) < ACTION_CACHE_TTL_MS) {
+		return cachedActions;
+	}
+	if (!force && cachedActionsPromise) {
+		return cachedActionsPromise;
+	}
+
+	cachedActionsPromise = buildActions().then((list) => {
+		if (version !== actionsCacheVersion) {
+			return list;
+		}
+		actions = list;
+		cachedActions = list;
+		cachedActionsAt = Date.now();
+		return list;
+	}).finally(() => {
+		if (version === actionsCacheVersion) {
+			cachedActionsPromise = null;
+		}
+	});
+
+	return cachedActionsPromise;
+}
+
+function canUseContentScript(url) {
+	if (!url || typeof url !== "string") return false;
+	if (url.startsWith("https://chrome.google.com/webstore")) return false;
+	if (url.startsWith("https://chromewebstore.google.com/")) return false;
+
+	try {
+		const protocol = new URL(url).protocol;
+		return protocol === "http:" || protocol === "https:" || protocol === "file:";
+	} catch (e) {
+		return false;
+	}
+}
+
+function openOmniInNewTab(sourceTab) {
+	const createOptions = { url: "./newtab.html" };
+	if (sourceTab && sourceTab.windowId != null) createOptions.windowId = sourceTab.windowId;
+	if (sourceTab && sourceTab.index != null) createOptions.index = sourceTab.index + 1;
+
+	return chrome.tabs.create(createOptions).then((createdTab) => {
+		if (createdTab && createdTab.id != null) {
+			restrictedNewTabSources.set(createdTab.id, sourceTab && sourceTab.url ? sourceTab.url : "");
+		}
+
+		if (sourceTab && sourceTab.id != null) {
+			chrome.tabs.remove(sourceTab.id).catch(() => {});
+		}
+	}).catch(() => {});
+}
+
+function ensureOmniInjected(tabId) {
+	const manifest = chrome.runtime.getManifest();
+	const contentScript = manifest.content_scripts && manifest.content_scripts[0];
+	if (!contentScript) return Promise.reject(new Error("Missing content script config"));
+
+	return chrome.scripting.insertCSS({
+		target: { tabId },
+		files: contentScript.css || []
+	}).catch(() => {}).then(() => (
+		chrome.scripting.executeScript({
+			target: { tabId },
+			files: contentScript.js || []
+		})
+	));
+}
+
+function openOmniOnTab(tab) {
+	if (!tab || tab.id == null) return openOmniInNewTab(tab);
+	if (canUseContentScript(tab.url)) {
+		return chrome.tabs.sendMessage(tab.id, {request: "open-omni"}).catch(() => {
+			return ensureOmniInjected(tab.id)
+				.then(() => chrome.tabs.sendMessage(tab.id, {request: "open-omni"}))
+				.catch(() => openOmniInNewTab(tab));
+		});
+	}
+	return openOmniInNewTab(tab);
+}
+
 // Build the default action list (atomic, returns array)
 const buildDefaultActions = async () => {
 	const response = await getCurrentTab();
-	if (!response) return [];
+	const currentTab = response || {};
 	const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 	let muteaction = {title:"Mute tab", desc:"Mute the current tab", type:"action", action:"mute", emoji:true, emojiChar:"\uD83D\uDD07", keycheck:true, keys:['\u2325','\u21E7', 'M']};
 	let pinaction = {title:"Pin tab", desc:"Pin the current tab", type:"action", action:"pin", emoji:true, emojiChar:"\uD83D\uDCCC", keycheck:true, keys:['\u2325','\u21E7', 'P']};
-	if (response.mutedInfo && response.mutedInfo.muted) {
+	if (currentTab.mutedInfo && currentTab.mutedInfo.muted) {
 		muteaction = {title:"Unmute tab", desc:"Unmute the current tab", type:"action", action:"unmute", emoji:true, emojiChar:"\uD83D\uDD08", keycheck:true, keys:['\u2325','\u21E7', 'M']};
 	}
-	if (response.pinned) {
+	if (currentTab.pinned) {
 		pinaction = {title:"Unpin tab", desc:"Unpin the current tab", type:"action", action:"unpin", emoji:true, emojiChar:"\uD83D\uDCCC", keycheck:true, keys:['\u2325','\u21E7', 'P']};
 	}
 	let defaults = [
@@ -181,20 +277,14 @@ chrome.runtime.onInstalled.addListener((object) => {
   const manifest = chrome.runtime.getManifest();
 
   const injectIntoTab = (tab) => {
-    const scripts = manifest.content_scripts[0].js;
-    const s = scripts.length;
-
-    for (let i = 0; i < s; i++) {
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: [scripts[i]],
-      });
-    }
-
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: manifest.content_scripts[0].js,
+    }).catch(() => {});
     chrome.scripting.insertCSS({
       target: { tabId: tab.id },
       files: [manifest.content_scripts[0].css[0]],
-    });
+    }).catch(() => {});
   };
 
   chrome.windows.getAll(
@@ -211,12 +301,12 @@ chrome.runtime.onInstalled.addListener((object) => {
         let currentTab;
         const t = currentWindow.tabs.length;
 
-        for (let j = 0; j < t; j++) {
-          currentTab = currentWindow.tabs[j];
-					if (!currentTab.url.includes("chrome://") && !currentTab.url.includes("chrome-extension://") && !currentTab.url.includes("chrome.google.com")) {
-          	injectIntoTab(currentTab);
+	        for (let j = 0; j < t; j++) {
+	          currentTab = currentWindow.tabs[j];
+					if (canUseContentScript(currentTab.url)) {
+	          	injectIntoTab(currentTab);
 					}
-        }
+	        }
       }
     }
   );
@@ -228,23 +318,14 @@ chrome.runtime.onInstalled.addListener((object) => {
 
 // Check when the extension button is clicked
 chrome.action.onClicked.addListener((tab) => {
-	chrome.tabs.sendMessage(tab.id, {request: "open-omni"}).catch(() => {});
+	openOmniOnTab(tab);
 });
 
 // Listen for the open omni shortcut
 chrome.commands.onCommand.addListener((command) => {
 	if (command === "open-omni") {
 		getCurrentTab().then((response) => {
-			if (response && !response.url.includes("chrome://") && !response.url.includes("chrome.google.com")) {
-				chrome.tabs.sendMessage(response.id, {request: "open-omni"}).catch(() => {});
-			} else {
-				chrome.tabs.create({
-					url: "./newtab.html"
-				}).then(() => {
-					newtaburl = response.url;
-					chrome.tabs.remove(response.id);
-				})
-			}
+			openOmniOnTab(response);
 		});
 	}
 });
@@ -260,15 +341,26 @@ const getCurrentTab = async () => {
 	}
 }
 
-// Restore the new tab page
-function restoreNewTab() {
-	getCurrentTab().then((response) => {
-		chrome.tabs.create({
-			url: newtaburl
-		}).then(() => {
-			chrome.tabs.remove(response.id);
-		})
-	})
+// Restore the original restricted tab that was replaced by the extension page.
+function restoreNewTab(tab) {
+	if (!tab || tab.id == null) return;
+	const sourceUrl = restrictedNewTabSources.get(tab.id);
+	restrictedNewTabSources.delete(tab.id);
+
+	if (!sourceUrl) {
+		chrome.tabs.remove(tab.id).catch(() => {});
+		return;
+	}
+
+	chrome.tabs.create({
+		url: sourceUrl,
+		windowId: tab.windowId,
+		index: tab.index
+	}).then(() => {
+		chrome.tabs.remove(tab.id).catch(() => {});
+	}).catch(() => {
+		chrome.tabs.remove(tab.id).catch(() => {});
+	});
 }
 
 // Build the full action list atomically. Called synchronously on demand
@@ -289,49 +381,94 @@ const buildActions = async () => {
 
 // Action handlers
 const switchTab = (tab) => {
+	if (!tab || tab.id == null || tab.windowId == null) return;
 	chrome.tabs.update(tab.id, { active: true }).then(() => {
 		chrome.windows.update(tab.windowId, { focused: true });
 	}).catch(() => {});
 }
 const goBack = (tab) => {
+	if (!tab || tab.id == null) return;
 	chrome.tabs.goBack({
-		tabs: tab.index
-	})
+		tabId: tab.id
+	}).catch(() => {});
 }
 const goForward = (tab) => {
+	if (!tab || tab.id == null) return;
 	chrome.tabs.goForward({
-		tabs: tab.index
-	})
+		tabId: tab.id
+	}).catch(() => {});
 }
 const duplicateTab = (tab) => {
+	const targetTabId = tab && tab.id != null ? tab.id : null;
+	if (targetTabId != null) {
+		invalidateActionsCache();
+		chrome.tabs.duplicate(targetTabId).catch(() => {});
+		return;
+	}
 	getCurrentTab().then((response) => {
-		chrome.tabs.duplicate(response.id);
+		if (response && response.id != null) {
+			invalidateActionsCache();
+			chrome.tabs.duplicate(response.id).catch(() => {});
+		}
 	})
 }
 const createBookmark = (tab) => {
-	getCurrentTab().then((response) => {
+	if (tab && tab.url) {
+		invalidateActionsCache();
 		chrome.bookmarks.create({
-			title: response.title,
-			url: response.url
+			title: tab.title,
+			url: tab.url
 		});
+		return;
+	}
+	getCurrentTab().then((response) => {
+		if (response && response.url) {
+			invalidateActionsCache();
+			chrome.bookmarks.create({
+				title: response.title,
+				url: response.url
+			});
+		}
 	})
 }
-const muteTab = (mute) =>{
+const muteTab = (mute, tab) =>{
+	const targetTabId = tab && tab.id != null ? tab.id : null;
+	if (targetTabId != null) {
+		invalidateActionsCache();
+		chrome.tabs.update(targetTabId, {"muted": mute}).catch(() => {});
+		return;
+	}
 	getCurrentTab().then((response) => {
-		chrome.tabs.update(response.id, {"muted": mute})
+		if (response && response.id != null) {
+			invalidateActionsCache();
+			chrome.tabs.update(response.id, {"muted": mute}).catch(() => {});
+		}
 	});
 }
-const reloadTab = () => {
-	chrome.tabs.reload();
+const reloadTab = (tab) => {
+	if (tab && tab.id != null) {
+		chrome.tabs.reload(tab.id).catch(() => {});
+		return;
+	}
+	chrome.tabs.reload().catch(() => {});
 }
-const pinTab = (pin) => {
+const pinTab = (pin, tab) => {
+	const targetTabId = tab && tab.id != null ? tab.id : null;
+	if (targetTabId != null) {
+		invalidateActionsCache();
+		chrome.tabs.update(targetTabId, {"pinned": pin}).catch(() => {});
+		return;
+	}
 	getCurrentTab().then((response) => {
-		chrome.tabs.update(response.id, {"pinned": pin})
+		if (response && response.id != null) {
+			invalidateActionsCache();
+			chrome.tabs.update(response.id, {"pinned": pin}).catch(() => {});
+		}
 	});
 }
 const clearAllData = () => {
 	chrome.browsingData.remove({
-		"since": (new Date()).getTime()
+		"since": 0
 	}, {
 		"appcache": true,
 		"cache": true,
@@ -364,7 +501,7 @@ const clearPasswords = () => {
 	chrome.browsingData.removePasswords({"since": 0});
 }
 const openChromeUrl = (url) => {
-	chrome.tabs.create({url: 'chrome://'+url+'/'});
+	chrome.tabs.create({url: 'chrome://' + url});
 }
 const openIncognito = () => {
 	chrome.windows.create({"incognito": true});
@@ -373,23 +510,55 @@ const closeWindow = (id) => {
 	chrome.windows.remove(id);
 }
 const closeTab = (tab) => {
-	chrome.tabs.remove(tab.id);
+	if (!tab || tab.id == null) return;
+	invalidateActionsCache();
+	chrome.tabs.remove(tab.id).catch(() => {});
 }
-const closeCurrentTab = () => {
+const closeCurrentTab = (tab) => {
+	if (tab && tab.id != null) {
+		closeTab(tab);
+		return;
+	}
 	getCurrentTab().then(closeTab)
 }
 const removeBookmark = (bookmark) => {
-	chrome.bookmarks.remove(bookmark.id);
+	if (!bookmark || bookmark.id == null) return;
+	invalidateActionsCache();
+	chrome.bookmarks.remove(bookmark.id).catch(() => {});
 }
+const toggleMute = (tab) => {
+	const muted = !!(tab && tab.mutedInfo && tab.mutedInfo.muted);
+	muteTab(!muted, tab);
+}
+const togglePin = (tab) => {
+	const pinned = !!(tab && tab.pinned);
+	pinTab(!pinned, tab);
+}
+
+chrome.tabs.onCreated.addListener(invalidateActionsCache);
+chrome.tabs.onRemoved.addListener((tabId) => {
+	restrictedNewTabSources.delete(tabId);
+	invalidateActionsCache();
+});
+chrome.tabs.onUpdated.addListener(invalidateActionsCache);
+chrome.bookmarks.onCreated.addListener(invalidateActionsCache);
+chrome.bookmarks.onRemoved.addListener(invalidateActionsCache);
+chrome.bookmarks.onChanged.addListener(invalidateActionsCache);
+chrome.bookmarks.onMoved.addListener(invalidateActionsCache);
+chrome.storage.onChanged.addListener((changes, namespace) => {
+	if (namespace === "sync" && changes.disabledCategories) {
+		invalidateActionsCache();
+	}
+});
 
 // Receive messages from any tab
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+	const senderTab = sender && sender.tab ? sender.tab : null;
 	switch (message.request) {
 		case "get-actions":
 			// Build atomically and reply asynchronously. Returning true keeps
 			// the message channel open until sendResponse is called.
-			buildActions().then((list) => {
-				actions = list;
+			getActionsSnapshot().then((list) => {
 				sendResponse({actions: list});
 			}).catch(() => {
 				sendResponse({actions: []});
@@ -405,25 +574,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			goForward(message.tab);
 			break;
 		case "duplicate-tab":
-			duplicateTab(message.tab);
+			duplicateTab(senderTab);
 			break;
 		case "create-bookmark":
-			createBookmark(message.tab);
+			createBookmark(senderTab);
 			break;
 		case "mute":
-			muteTab(true);
+			muteTab(true, senderTab);
 			break;
 		case "unmute":
-			muteTab(false);
+			muteTab(false, senderTab);
+			break;
+		case "toggle-mute":
+			toggleMute(senderTab);
 			break;
 		case "reload":
-			reloadTab();
+			reloadTab(senderTab);
 			break;
 		case "pin":
-			pinTab(true);
+			pinTab(true, senderTab);
 			break;
 		case "unpin":
-			pinTab(false);
+			pinTab(false, senderTab);
+			break;
+		case "toggle-pin":
+			togglePin(senderTab);
 			break;
 		case "remove-all":
 			clearAllData();
@@ -457,48 +632,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			openIncognito();
 			break;
 		case "close-window":
-			closeWindow(sender.tab.windowId);
+			if (senderTab) closeWindow(senderTab.windowId);
 			break;
 		case "close-tab":
-			closeCurrentTab();
+			closeCurrentTab(senderTab);
 			break;
-		case "search-history":
-			chrome.history.search({text:message.query, maxResults:0, startTime:0}).then((data) => {
-				data.forEach((action, index) => {
-					action.type = "history";
-					action.emoji = true;
-					action.emojiChar = "\uD83C\uDFDB";
-					action.action = "history";
-					action.keyCheck = false;
+			case "search-history":
+				chrome.history.search({text:message.query, maxResults:200, startTime:0}).then((data) => {
+					sendResponse({
+					history: data.map((action) => ({
+						...action,
+						type: "history",
+						emoji: true,
+						emojiChar: "\uD83C\uDFDB",
+						action: "history",
+						keyCheck: false
+					}))
 				});
-				sendResponse({history:data});
-			})
-			return true;
-		case "search-bookmarks":
-			chrome.bookmarks.search({query:message.query}).then((data) => {
-				data.filter(x => x.index == 0).forEach((action, index) => {
-					if (!action.url) {
-						data.splice(index, 1);
-					}
-					action.type = "bookmark";
-					action.emoji = true;
-					action.emojiChar = "\u2B50\uFE0F";
-					action.action = "bookmark";
-					action.keyCheck = false;
+				}).catch(() => {
+					sendResponse({history: []});
 				})
-				data.forEach((action, index) => {
-					if (!action.url) {
-						data.splice(index, 1);
-					}
-					action.type = "bookmark";
-					action.emoji = true;
-					action.emojiChar = "\u2B50\uFE0F";
-					action.action = "bookmark";
-					action.keyCheck = false;
+				return true;
+			case "search-bookmarks":
+				chrome.bookmarks.search({query:message.query}).then((data) => {
+				sendResponse({
+					bookmarks: data
+						.filter((action) => !!action.url)
+						.slice(0, 200)
+						.map((action) => ({
+							...action,
+							type: "bookmark",
+							emoji: true,
+							emojiChar: "\u2B50\uFE0F",
+							action: "bookmark",
+							keyCheck: false
+						}))
+				});
+				}).catch(() => {
+					sendResponse({bookmarks: []});
 				})
-				sendResponse({bookmarks:data});
-			})
-			return true;
+				return true;
 		case "remove":
 			if (message.type == "bookmark") {
 				removeBookmark(message.action);
@@ -511,18 +684,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 				{text:message.query}
 			)
 			break;
-		case "restore-new-tab":
-			restoreNewTab();
-			break;
+			case "restore-new-tab":
+				restoreNewTab(senderTab);
+				break;
 		case "close-omni":
-			getCurrentTab().then((response) => {
-				if (response) {
-					chrome.tabs.sendMessage(response.id, {request: "close-omni"}).catch(() => {});
-				}
-			});
+			if (senderTab && senderTab.id != null) {
+				chrome.tabs.sendMessage(senderTab.id, {request: "close-omni"}).catch(() => {});
+			}
 			break;
 		}
 });
 
-// Prime actions once on startup (actions are rebuilt per-request after that)
-buildActions().then((list) => { actions = list; }).catch(() => {});
+// Keep the cache warm only when explicitly requested.
