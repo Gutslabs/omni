@@ -344,6 +344,7 @@ chrome.commands.onCommand.addListener((command) => {
 	if (command === "open-omni") {
 		getCurrentTab().then((response) => {
 			openOmniOnTab(response);
+			recoverOpenOmniShortcutRace(response).catch(() => {});
 		});
 	}
 });
@@ -357,6 +358,26 @@ const getCurrentTab = async () => {
 	} catch (e) {
 		return null;
 	}
+}
+
+function isBlankShortcutTarget(tab, initialTabId) {
+	if (!tab || tab.id == null || tab.id === initialTabId) return false;
+
+	const url = tab.pendingUrl || tab.url || "";
+	if (url === "about:blank" || url === "chrome://newtab/") return true;
+
+	return !url && (!tab.title || tab.title === "Untitled");
+}
+
+async function recoverOpenOmniShortcutRace(initialTab) {
+	const initialTabId = initialTab && initialTab.id != null ? initialTab.id : null;
+
+	await new Promise((resolve) => setTimeout(resolve, 150));
+
+	const activeTab = await getCurrentTab();
+	if (!isBlankShortcutTarget(activeTab, initialTabId)) return;
+
+	return openOmniOnTab(activeTab);
 }
 
 // Restore the original restricted tab that was replaced by the extension page.
@@ -391,8 +412,8 @@ const buildActions = async () => {
 		getBookmarksAsActions()
 	]);
 	const search = [
-		{title:"Search", desc:"Search for a query", type:"action", action:"search", emoji:true, emojiChar:"\uD83D\uDD0D", keycheck:false},
-		{title:"Search", desc:"Go to website", type:"action", action:"goto", emoji:true, emojiChar:"\uD83D\uDD0D", keycheck:false}
+		{title:"Search Google", desc:"Search Google", type:"action", action:"search", emoji:true, emojiChar:"\uD83D\uDD0D", keycheck:false},
+		{title:"Go to website", desc:"Open website", type:"action", action:"goto", emoji:true, emojiChar:"\uD83D\uDD0D", keycheck:false}
 	];
 	return search.concat(tabs, defaults, bookmarks);
 };
@@ -552,6 +573,28 @@ const togglePin = (tab) => {
 	const pinned = !!(tab && tab.pinned);
 	pinTab(!pinned, tab);
 }
+const createNewTab = (senderTab) => {
+	const createOptions = {};
+	if (senderTab && senderTab.windowId != null) createOptions.windowId = senderTab.windowId;
+	if (senderTab && senderTab.index != null) createOptions.index = senderTab.index + 1;
+	chrome.tabs.create(createOptions).catch(() => {});
+}
+const searchGoogle = (query, senderTab, openInNewTab) => {
+	if (!query) return;
+	const googleUrl = "https://www.google.com/search?q=" + encodeURIComponent(query);
+
+	if (openInNewTab || !senderTab || senderTab.id == null) {
+		const createOptions = { url: googleUrl };
+		if (senderTab && senderTab.windowId != null) createOptions.windowId = senderTab.windowId;
+		if (senderTab && senderTab.index != null) createOptions.index = senderTab.index + 1;
+		chrome.tabs.create(createOptions).catch(() => {});
+		return;
+	}
+
+	chrome.tabs.update(senderTab.id, { url: googleUrl }).catch(() => {
+		chrome.tabs.create({ url: googleUrl }).catch(() => {});
+	});
+}
 
 chrome.tabs.onCreated.addListener(invalidateActionsCache);
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -594,12 +637,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		case "duplicate-tab":
 			duplicateTab(senderTab);
 			break;
-		case "create-bookmark":
-			createBookmark(senderTab);
-			break;
-		case "mute":
-			muteTab(true, senderTab);
-			break;
+			case "create-bookmark":
+				createBookmark(senderTab);
+				break;
+			case "new-tab":
+				createNewTab(senderTab);
+				break;
+			case "mute":
+				muteTab(true, senderTab);
+				break;
 		case "unmute":
 			muteTab(false, senderTab);
 			break;
@@ -698,9 +744,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			}
 			break;
 		case "search":
-			chrome.search.query(
-				{text:message.query}
-			)
+			searchGoogle(message.query, senderTab, !!message.newTab);
 			break;
 			case "restore-new-tab":
 				restoreNewTab(senderTab);

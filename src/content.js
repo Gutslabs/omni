@@ -156,9 +156,9 @@ function init() {
 		if (results) results.textContent = count + " results";
 	}
 
-	function syncActiveItem() {
-		const items = Array.from($$("#omni-extension #omni-list .omni-item"));
-		let visibleCount = 0;
+		function syncActiveItem() {
+			const items = Array.from($$("#omni-extension #omni-list .omni-item"));
+			let visibleCount = 0;
 		let firstVisible = null;
 		let activeVisible = null;
 
@@ -180,8 +180,17 @@ function init() {
 			activeItemIndex = parseInt(activeVisible.getAttribute("data-index"), 10) || 0;
 		}
 
-		updateResultsLabel(visibleCount);
-	}
+			updateResultsLabel(visibleCount);
+		}
+
+		function setPreferredSearchSelection(value) {
+			if (!value) return;
+
+			const targetAction = validURL(value) ? "goto" : "search";
+			const preferredEl = getItemByAction(targetAction);
+			if (!preferredEl || preferredEl.classList.contains("omni-hidden")) return;
+			setActiveItemByIndex(parseInt(preferredEl.getAttribute("data-index"), 10) || 0, false);
+		}
 
 	function keepItemInView(target) {
 		const list = getOmniList();
@@ -693,28 +702,33 @@ function init() {
 					} else {
 						toggleItem(el, (nameText.indexOf(actionsValue) > -1 || descText.indexOf(actionsValue) > -1) && type == "action");
 					}
-				} else {
-					toggleItem(el, nameText.indexOf(value) > -1 || descText.indexOf(value) > -1);
-					if (value == "") {
-						if (searchEl) searchEl.classList.add('omni-hidden');
-						if (gotoEl) gotoEl.classList.add('omni-hidden');
-					} else if (!validURL(value)) {
-						if (searchEl) searchEl.classList.remove('omni-hidden');
-						if (gotoEl) gotoEl.classList.add('omni-hidden');
-						const searchName = $(".omni-item-name", searchEl);
-						if (searchName) searchName.textContent = '"' + value + '"';
 					} else {
-						if (searchEl) searchEl.classList.add('omni-hidden');
-						if (gotoEl) gotoEl.classList.remove('omni-hidden');
-						const gotoName = $(".omni-item-name", gotoEl);
-						if (gotoName) gotoName.textContent = value;
+						toggleItem(el, nameText.indexOf(value) > -1 || descText.indexOf(value) > -1);
+						if (value == "") {
+							if (searchEl) searchEl.classList.add('omni-hidden');
+							if (gotoEl) gotoEl.classList.add('omni-hidden');
+						} else if (!validURL(value)) {
+							if (searchEl) searchEl.classList.remove('omni-hidden');
+							if (gotoEl) gotoEl.classList.add('omni-hidden');
+							const searchName = $(".omni-item-name", searchEl);
+							if (searchName) searchName.textContent = '"' + value + '"';
+							const searchDesc = $(".omni-item-desc", searchEl);
+							if (searchDesc) searchDesc.textContent = "Search Google";
+						} else {
+							if (searchEl) searchEl.classList.add('omni-hidden');
+							if (gotoEl) gotoEl.classList.remove('omni-hidden');
+							const gotoName = $(".omni-item-name", gotoEl);
+							if (gotoName) gotoName.textContent = value;
+							const gotoDesc = $(".omni-item-desc", gotoEl);
+							if (gotoDesc) gotoDesc.textContent = "Open website";
+						}
 					}
-				}
-			});
-		}
+				});
+			}
 
-		syncActiveItem();
-	}
+			syncActiveItem();
+			setPreferredSearchSelection(value);
+		}
 
 		// Handle actions from the omni
 		function handleAction(e) {
@@ -771,7 +785,7 @@ function init() {
 						document.documentElement.requestFullscreen().catch(() => {});
 						break;
 					case "new-tab":
-						window.open("about:blank");
+						safeSend({request:"new-tab"});
 						break;
 					case "email":
 						window.open("mailto:");
@@ -783,16 +797,19 @@ function init() {
 						window.open(action.url, "_self");
 					}
 					break;
-				case "goto":
-					if (e.ctrlKey || e.metaKey) {
-						window.open(addhttp(inputVal));
-					} else {
-						window.open(addhttp(inputVal), "_self");
-					}
+					case "goto":
+						if (e.ctrlKey || e.metaKey) {
+							window.open(addhttp(inputVal));
+						} else {
+							window.open(addhttp(inputVal), "_self");
+						}
 						break;
-					case "print":
-						window.print();
+					case "search":
+						safeSend({request:"search", query:inputVal, newTab: !!(e.ctrlKey || e.metaKey)});
 						break;
+						case "print":
+							window.print();
+							break;
 					case "switch-tab":
 					case "go-back":
 					case "go-forward":
